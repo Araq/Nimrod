@@ -24,6 +24,11 @@
   `const SOMECONST = 0.int; procThatTakesInt32(SOMECONST)` will be illegal now.
   Simply write `const SOMECONST = 0` instead.
 
+- A bug that automatically lifts nodes of kind `stmtList` into lambda
+  expressions has been fixed.
+
+- Code blocks that start with a `do` are now consistent of type
+  `nkDo`.
 
 
 ## Library additions
