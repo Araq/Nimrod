@@ -35,7 +35,7 @@ proc writeDepsFile(g: ModuleGraph) =
     if m != nil:
       f.writeLine(toFullPath(g.config, m.position.FileIndex))
   for k in g.inclToMod.keys:
-    if g.getModule(k).isNil:  # don't repeat includes which are also modules
+    if g.getModule(k).isNil: # don't repeat includes which are also modules
       f.writeLine(toFullPath(g.config, k))
   f.close()
 
@@ -51,15 +51,15 @@ proc commandGenDepend(graph: ModuleGraph) =
       ' ' & changeFileExt(project, "dot").string)
 
 proc commandCheck(graph: ModuleGraph) =
-  graph.config.errorMax = high(int)  # do not stop after first error
+  graph.config.errorMax = high(int) # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
-  semanticPasses(graph)  # use an empty backend for semantic checking only
+  semanticPasses(graph) # use an empty backend for semantic checking only
   compileProject(graph)
 
 when not defined(leanCompiler):
   proc commandDoc2(graph: ModuleGraph; json: bool) =
     handleDocOutputOptions graph.config
-    graph.config.errorMax = high(int)  # do not stop after first error
+    graph.config.errorMax = high(int) # do not stop after first error
     semanticPasses(graph)
     if json: registerPass(graph, docgen2JsonPass)
     else: registerPass(graph, docgen2Pass)
@@ -82,7 +82,8 @@ proc commandCompileToC(graph: ModuleGraph) =
   semanticPasses(graph)
   registerPass(graph, cgenPass)
 
-  if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
+  if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(
+      conf, "nimBetterRun"):
     let proj = changeFileExt(conf.projectFull, "")
     if not changeDetectedViaJsonBuildInstructions(conf, proj):
       # nothing changed
@@ -109,11 +110,13 @@ when not defined(leanCompiler):
   proc commandCompileToJS(graph: ModuleGraph) =
     let conf = graph.config
     conf.exc = excCpp
-
     if conf.outDir.isEmpty:
       conf.outDir = conf.projectPath
     if conf.outFile.isEmpty:
-      conf.outFile = RelativeFile(conf.projectName & ".js")
+      var ext = "js"
+      if conf.outExt.len > 0: 
+        ext = conf.outExt
+      conf.outFile = RelativeFile(conf.projectName & "." & ext)
 
     #incl(gGlobalOptions, optSafeCode)
     setTarget(graph.config.target, osJS, cpuJS)
@@ -136,11 +139,12 @@ proc interactivePasses(graph: ModuleGraph) =
   registerPass(graph, evalPass)
 
 proc commandInteractive(graph: ModuleGraph) =
-  graph.config.errorMax = high(int)  # do not stop after first error
+  graph.config.errorMax = high(int) # do not stop after first error
   interactivePasses(graph)
   compileSystemModule(graph)
   if graph.config.commandArgs.len > 0:
-    discard graph.compileModule(fileInfoIdx(graph.config, graph.config.projectFull), {})
+    discard graph.compileModule(fileInfoIdx(graph.config,
+        graph.config.projectFull), {})
   else:
     var m = graph.makeStdinModule()
     incl(m.flags, sfMainModule)
@@ -148,10 +152,10 @@ proc commandInteractive(graph: ModuleGraph) =
 
 const evalPasses = [verbosePass, semPass, evalPass]
 
-proc evalNim(graph: ModuleGraph; nodes: PNode, module: PSym) =
+proc evalNim(graph: ModuleGraph; nodes: PNode; module: PSym) =
   carryPasses(graph, nodes, module, evalPasses)
 
-proc commandScan(cache: IdentCache, config: ConfigRef) =
+proc commandScan(cache: IdentCache; config: ConfigRef) =
   var f = addFileExt(AbsoluteFile mainCommandArg(config), NimExt)
   var stream = llStreamOpen(f, fmRead)
   if stream != nil:
@@ -181,7 +185,18 @@ proc mainCommand*(graph: ModuleGraph) =
   conf.lastCmdTime = epochTime()
   conf.searchPaths.add(conf.libpath)
   setId(100)
-  case conf.command.normalize
+  var cmd = conf.command.normalize
+  var targetExt = ""
+  if cmd.startsWith("js"):
+    let arrCmd = cmd.split(":")
+    let ext = arrCmd[1]
+    cmd = "js"
+    if ext == "":
+      targetExt = "js" 
+    else: 
+      targetExt = ext
+      
+  case cmd
   of "c", "cc", "compile", "compiletoc":
     # compile means compileToC currently
     conf.cmd = cmdCompileToC
@@ -204,11 +219,12 @@ proc mainCommand*(graph: ModuleGraph) =
       commandCompileToC(graph)
     else:
       rawMessage(conf, errGenerated, "'run' command not available; rebuild with -d:tinyc")
-  of "js", "compiletojs":
+  of "js":
     when defined(leanCompiler):
       quit "compiler wasn't built with JS code generator"
     else:
       conf.cmd = cmdCompileToJS
+      conf.outExt = targetExt
       if conf.hcrOn:
         # XXX: At the moment, system.nim cannot be compiled in JS mode
         # with "-d:useNimRtl". The HCR option has been processed earlier
@@ -324,7 +340,7 @@ proc mainCommand*(graph: ModuleGraph) =
       msgWriteln(conf, $dumpdata, {msgStdout, msgSkipHook})
     else:
       msgWriteln(conf, "-- list of currently defined symbols --",
-                 {msgStdout, msgSkipHook})
+                  {msgStdout, msgSkipHook})
       for s in definedSymbolNames(conf.symbols): msgWriteln(conf, s, {msgStdout, msgSkipHook})
       msgWriteln(conf, "-- end of list --", {msgStdout, msgSkipHook})
 
@@ -346,9 +362,11 @@ proc mainCommand*(graph: ModuleGraph) =
     commandInteractive(graph)
   of "e":
     if not fileExists(conf.projectFull):
-      rawMessage(conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string)
+      rawMessage(conf, errGenerated, "NimScript file does not exist: " &
+          conf.projectFull.string)
     elif not conf.projectFull.string.endsWith(".nims"):
-      rawMessage(conf, errGenerated, "not a NimScript file: " & conf.projectFull.string)
+      rawMessage(conf, errGenerated, "not a NimScript file: " &
+          conf.projectFull.string)
     # main NimScript logic handled in cmdlinehelper.nim.
   of "nop", "help":
     # prevent the "success" message:
@@ -369,7 +387,8 @@ proc mainCommand*(graph: ModuleGraph) =
                 elif isDefined(conf, "release"): "Release"
                 else: "Debug"
     let sec = formatFloat(epochTime() - conf.lastCmdTime, ffDecimal, 3)
-    let project = if optListFullPaths in conf.globalOptions: $conf.projectFull else: $conf.projectName
+    let project = if optListFullPaths in
+        conf.globalOptions: $conf.projectFull else: $conf.projectName
     var output = $conf.absOutFile
     if optListFullPaths notin conf.globalOptions: output = output.AbsoluteFile.extractFilename
     rawMessage(conf, hintSuccessX, [
