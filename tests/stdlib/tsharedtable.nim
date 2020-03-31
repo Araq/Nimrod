@@ -66,10 +66,15 @@ block: # we use Table as groundtruth, it's well tested elsewhere
       doAssert t.mgetOrPut(i, -2) == -2
       doAssert t.mget(i) == -2
 
+    var numOK = 0
     for i in 0..<n4:
       let ok = i in t0
+      if ok:
+        numOK.inc
       if not ok: t0[i] = -i
       doAssert t.hasKeyOrPut(i, -i) == ok
+    doAssert numOK > 0
+    doAssert numOK < n4
 
     checkEquals()
 
