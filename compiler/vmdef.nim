@@ -236,7 +236,10 @@ type
     currentException*: PNode
     currentLineInfo*: TLineInfo
   VmCallback* = proc (args: VmArgs) {.closure.}
-
+  CallbackElement = object
+    key*: string
+    value*: VmCallback
+    mayRaise*: bool
   PCtx* = ref TCtx
   TCtx* = object of TPassContext # code gen context
     code*: seq[TInstr]
@@ -255,7 +258,7 @@ type
     traceActive*: bool
     loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
-    callbacks*: seq[tuple[key: string, value: VmCallback]]
+    callbacks*: seq[CallbackElement]
     errorFlag*: string
     cache*: IdentCache
     config*: ConfigRef
@@ -278,9 +281,11 @@ proc refresh*(c: PCtx, module: PSym) =
   c.prc = PProc(blocks: @[])
   c.loopIterations = c.config.maxLoopIterationsVM
 
-proc registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.discardable.} =
+proc registerCallback*(c: PCtx; name: string; callback: VmCallback, mayRaise = false): int {.discardable.} =
+  # Alternatively, we could also pass (as a string) the exception(s) we expect
+  # to catch, eg `EOFError`
   result = c.callbacks.len
-  c.callbacks.add((name, callback))
+  c.callbacks.add(CallbackElement(key: name, value: callback, mayRaise: mayRaise))
 
 const
   firstABxInstr* = opcTJmp

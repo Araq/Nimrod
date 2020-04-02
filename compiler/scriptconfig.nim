@@ -21,8 +21,9 @@ from strutils import cmpIgnoreStyle, contains
 
 proc listDirs(a: VmArgs, filter: set[PathComponent]) =
   let dir = getString(a, 0)
+  let checkDir = getBool(a, 1)
   var result: seq[string] = @[]
-  for kind, path in walkDir(dir):
+  for kind, path in walkDir(dir, checkDir = checkDir):
     if kind in filter: result.add path
   setResult(a, result)
 
@@ -35,7 +36,6 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   let conf = graph.config
 
   # captured vars:
-  var errorMsg: string
   var vthisDir = scriptName.splitFile.dir
 
   template cbconf(name, body) {.dirty.} =
@@ -44,22 +44,17 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
         body
 
   template cbexc(name, exc, body) {.dirty.} =
-    result.registerCallback "stdlib.system." & astToStr(name),
-      proc (a: VmArgs) =
-        errorMsg = ""
-        try:
-          body
-        except exc:
-          errorMsg = getCurrentExceptionMsg()
+    result.registerCallback "stdlib.system." & astToStr(name), mayRaise = true, callback =
+      proc (a: VmArgs) = body
 
   template cbos(name, body) {.dirty.} =
     cbexc(name, OSError, body)
 
   # Idea: Treat link to file as a file, but ignore link to directory to prevent
   # endless recursions out of the box.
-  cbos listFilesImpl:
+  cbos listFiles:
     listDirs(a, {pcFile, pcLinkToFile})
-  cbos listDirsImpl:
+  cbos listDirs:
     listDirs(a, {pcDir})
   cbos removeDir:
     if defined(nimsuggest) or graph.config.cmd == cmdCheck:
@@ -73,10 +68,6 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
       os.removeFile getString(a, 0)
   cbos createDir:
     os.createDir getString(a, 0)
-
-  result.registerCallback "stdlib.system.getError",
-    proc (a: VmArgs) = setResult(a, errorMsg)
-
   cbos setCurrentDir:
     os.setCurrentDir getString(a, 0)
   cbos getCurrentDir:

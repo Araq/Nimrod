@@ -260,6 +260,10 @@ proc `$`(s: seq[StackTraceEntry]): string =
     elif s[i].line == reraisedFromEnd: result.add "]]\n"
     else: addFrameEntry(result, s[i])
 
+template toStrDefault*(s: seq[StackTraceEntry]): string =
+  ## see also asyncfutures.`$`
+  $s
+
 when hasSomeStackTrace:
 
   proc auxWriteStackTrace(f: PFrame, s: var string) =

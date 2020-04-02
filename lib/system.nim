@@ -2224,7 +2224,6 @@ when notJSnotNims:
     include "system/arithm"
   {.pop.}
 
-
 when not defined(js):
   # this is a hack: without this when statement, you would get:
   # Error: system module needs: nimGCvisit
@@ -3011,3 +3010,25 @@ export io
 
 when not defined(createNimHcr):
   include nimhcr
+
+when defined(nimHasInternalProc):
+  ## {.internalproc.} is analog to {.compilerproc.} but is used for semantic
+  ## phase instead of codegen. It simplifies implementation by using nim code
+  ## instead of building the AST by hand, while also avoiding making these
+  ## public.
+  proc nimInternalNewException(name: string, msg: string, traceMsg: string) {.internalproc.} =
+    ## internal proc for raising from vmpops
+    template fun(T) =
+      if name == astToStr(T):
+        var msg = msg
+        if traceMsg.len > 0:
+          # we could query for whether nim was build with --stacktrace to
+          # provide more accurate msg, but not sure if it's exposed.
+          msg.add "\nVM callback stacktrace (compile nim with --stacktrace if needed)\n" & traceMsg & "\n"
+        raise newException(T, msg)
+    # can add more hardcoded standard types here
+    fun(OSError)
+    fun(IOError)
+    fun(AssertionError)
+    # if hits here, should be easy to handle
+    doAssert false, "`nimInternalNewException` does not yet handle " & name
