@@ -99,7 +99,7 @@ compiler nintendoSwitchGCC:
     optSize: " -Os ",
     compilerExe: "aarch64-none-elf-gcc",
     cppCompiler: "aarch64-none-elf-g++",
-    compileTmpl: "-w -MMD -MP -MF $dfile -c $options $include -o $objfile $file",
+    compileTmpl: "-MMD -MP -MF $dfile -c $options $include -o $objfile $file",
     buildGui: " -mwindows",
     buildDll: " -shared",
     buildLib: "aarch64-none-elf-gcc-ar rcs $libfile $objfiles",
@@ -471,8 +471,12 @@ proc addCompileOption*(conf: ConfigRef; option: string) =
 proc addLinkOptionCmd*(conf: ConfigRef; option: string) =
   addOpt(conf.linkOptionsCmd, option)
 
-proc addCompileOptionCmd*(conf: ConfigRef; option: string) =
-  conf.compileOptionsCmd.add(option)
+proc addCompileOptionCmd*(conf: ConfigRef; option: string, isRemove = false) =
+  if isRemove:
+    if (var index = conf.compileOptionsCmd.find(option); index >= 0):
+      conf.compileOptionsCmd.delete(index)
+  else:
+    conf.compileOptionsCmd.add(option)
 
 proc initVars*(conf: ConfigRef) =
   # we need to define the symbol here, because ``CC`` may have never been set!
@@ -543,6 +547,18 @@ proc getOptSize(conf: ConfigRef; c: TSystemCC): string =
   if result == "":
     result = CC[c].optSize    # use default settings from this file
 
+proc flagsToNative(flags: string, c: TSystemCC): string =
+  ## replaces ' -X' by ' /X' for VCC; works ok for some common flags.
+  if c == ccVcc: result = flags.replace(" -", " /")
+  else: result = flags
+
+proc getWarnings(conf: ConfigRef; c: TSystemCC): string =
+  result = getConfigVar(conf, c, ".options.warnings")
+  if not conf.hasWarn(warnBackendWarning):
+    result.add " -w".flagsToNative(c) # disable all warnings
+  else:
+    result.add " -DNIM_UNIGNORE_DEFAULT_BACKEND_WARNINGS".flagsToNative(c)
+
 proc noAbsolutePaths(conf: ConfigRef): bool {.inline.} =
   # We used to check current OS != specified OS, but this makes no sense
   # really: Cross compilation from Linux to Linux for example is entirely
@@ -552,8 +568,14 @@ proc noAbsolutePaths(conf: ConfigRef): bool {.inline.} =
 
 proc cFileSpecificOptions(conf: ConfigRef; nimname, fullNimFile: string): string =
   result = conf.compileOptions
-  addOpt(result, conf.cfileSpecificOptions.getOrDefault(fullNimFile))
 
+  block: # warnings
+    # must occur before `compileOptionsCmd` so user config/cmdline can override
+    let key = nimname & ".warnings"
+    if existsConfigVar(conf, key): addOpt(result, getConfigVar(conf, key))
+    else: addOpt(result, getWarnings(conf, conf.cCompiler))
+
+  addOpt(result, conf.cfileSpecificOptions.getOrDefault(fullNimFile))
   for option in conf.compileOptionsCmd:
     if strutils.find(result, option, 0) < 0:
       addOpt(result, option)
@@ -873,7 +895,8 @@ proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx:
           cmds[i])
   else:
     tryExceptOSErrorMessage(conf, "invocation of external compiler program failed."):
-      res = execProcesses(cmds, {poStdErrToStdOut, poUsePath, poParentStreams},
+      # keep writing errors/warnings to stderr
+      res = execProcesses(cmds, {poUsePath, poParentStreams},
                             conf.numberOfProcessors, prettyCb, afterRunEvent=runCb)
   if res != 0:
     if conf.numberOfProcessors <= 1:

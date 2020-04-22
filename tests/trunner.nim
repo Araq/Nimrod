@@ -7,8 +7,9 @@ discard """
 
 import std/[strformat,os,osproc,strutils]
 
+let mode = if existsEnv("NIM_COMPILE_TO_CPP"): "cpp" else: "c"
+
 proc runCmd(file, options = ""): auto =
-  let mode = if existsEnv("NIM_COMPILE_TO_CPP"): "cpp" else: "c"
   const nim = getCurrentCompilerExe()
   const testsDir = currentSourcePath().parentDir
   let fileabs = testsDir / file.unixToNativePath
@@ -24,18 +25,25 @@ proc testCodegenStaticAssert() =
   doAssert "sizeof(bool) == 2" in output
   doAssert exitCode != 0
 
+proc testBackendWarnings() =
+  when defined clang:
+    let (output, exitCode) = runCmd("misc/mbackendwarnings.nim", "-f --warning:backendWarning:on --stacktrace:off")
+    doAssert r"warning_1" in output, output
+    doAssert r"warning_2" in output, output
+    doAssert r"no_warning" notin output, output  # sanity check
+    doAssert exitCode == 0, output
+
 proc testCTFFI() =
   let (output, exitCode) = runCmd("vm/mevalffi.nim", "--experimental:compiletimeFFI")
   let expected = """
 hello world stderr
 hi stderr
-foo
-foo:100
-foo:101
-foo:102:103
-foo:102:103:104
-foo:0.03:asdf:103:105
-ret={s1:foobar s2:foobar age:25 pi:3.14}
+foo0
+foo1:101
+foo2:102:103
+foo3:102:103:104
+foo4:0.03:asdf:103:105
+foo5:{s1:foobar s2:foobar age:25 pi:3.14}
 """
   doAssert output == expected, output
   doAssert exitCode == 0
@@ -44,3 +52,4 @@ when defined(nimHasLibFFIEnabled):
   testCTFFI()
 else: # don't run twice the same test
   testCodegenStaticAssert()
+  testBackendWarnings()

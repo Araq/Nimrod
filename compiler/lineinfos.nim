@@ -17,6 +17,7 @@ const
 
 type
   TMsgKind* = enum
+    # errors
     errUnknown, errInternal, errIllFormedAstX, errCannotOpenFile,
     errXExpected,
     errGridTableNotImplemented,
@@ -26,6 +27,7 @@ type
     errProveInit,
     errGenerated,
     errUser,
+    # warnings
     warnCannotOpenFile,
     warnOctalEscape, warnXIsNeverRead, warnXmightNotBeenInit,
     warnDeprecated, warnConfigDeprecated,
@@ -42,7 +44,9 @@ type
     warnProveInit, warnProveField, warnProveIndex,
     warnStaticIndexCheck, warnGcUnsafe, warnGcUnsafe2,
     warnUninit, warnGcMem, warnDestructor, warnLockLevel, warnResultShadowed,
-    warnInconsistentSpacing, warnCaseTransition, warnCycleCreated, warnUser,
+    warnInconsistentSpacing, warnCaseTransition, warnCycleCreated,
+    warnBackendWarning, warnUser,
+    # hints
     hintSuccess, hintSuccessX, hintCC,
     hintLineTooLong, hintXDeclaredButNotUsed,
     hintConvToBaseNotNeeded,
@@ -107,6 +111,7 @@ const
     warnInconsistentSpacing: "Number of spaces around '$#' is not consistent",
     warnCaseTransition: "Potential object case transition, instantiate new object instead",
     warnCycleCreated: "$1",
+    warnBackendWarning: "$1",
     warnUser: "$1",
     hintSuccess: "operation successful: $#",
     # keep in sync with `testament.isSuccess`
@@ -156,7 +161,7 @@ const
     "ProveInit", "ProveField", "ProveIndex",
     "IndexCheck", "GcUnsafe", "GcUnsafe2", "Uninit",
     "GcMem", "Destructor", "LockLevel", "ResultShadowed",
-    "Spacing", "CaseTransition", "CycleCreated", "User"]
+    "Spacing", "CaseTransition", "CycleCreated", "BackendWarning", "User"]
 
   HintsToStr* = [
     "Success", "SuccessX", "CC", "LineTooLong",
@@ -190,7 +195,7 @@ proc computeNotesVerbosity(): array[0..3, TNoteKinds] =
   result[3] = {low(TNoteKind)..high(TNoteKind)} - {}
   result[2] = result[3] - {hintStackTrace, warnUninit, hintExtendedContext}
   result[1] = result[2] - {warnProveField, warnProveIndex,
-    warnGcUnsafe, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
+    warnGcUnsafe, warnBackendWarning, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
     hintSource, hintGlobalVar, hintGCStats}
   result[0] = result[1] - {hintSuccessX, hintSuccess, hintConf,
     hintProcessing, hintPattern, hintExecuting, hintLinking, hintCC}
