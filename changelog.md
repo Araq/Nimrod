@@ -125,6 +125,8 @@
 ## Compiler changes
 
 - Specific warnings can now be turned into errors via `--warningAsError[X]:on|off`.
+- `--warningAsError:on|off` turns all enabled warnings into errors (or back to warnings),
+- `--warningAsError:on` is now enabled in compiler/config.nims
 - The `define` and `undef` pragmas have been de-deprecated.
 - New command: `nim r main.nim [args...]` which compiles and runs main.nim, saving
   the binary to $nimcache/main$exeExt, using the same logic as `nim c -r` to
