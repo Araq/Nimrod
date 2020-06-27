@@ -3,7 +3,6 @@ discard """
   output: '''
 body executed
 body executed
-OK
 macros api OK
 '''
 """
@@ -37,14 +36,15 @@ doAssert mysize3 == 32
 
 import macros, typetraits
 
-macro testSizeAlignOf(args: varargs[untyped]): untyped =
+macro testSizeAlignOf(args: untyped): untyped =
+  ## accepts values or types
   result = newStmtList()
   for arg in args:
     result.add quote do:
       let
         c_size = c_sizeof(`arg`)
         nim_size = sizeof(`arg`)
-        c_align = c_alignof(type(`arg`))
+        c_align = c_alignof(`arg`)
         nim_align = alignof(`arg`)
 
       if nim_size != c_size or nim_align != c_align:
@@ -91,25 +91,35 @@ template c_offsetof(t: typedesc, a: untyped): int32 =
   var x: ptr t
   c_offsetof(x[].a)
 
-macro c_sizeof(a: typed): int32 =
+template c_sizeof(a: typed): int =
   ## Bullet proof implementation that works using the sizeof operator
   ## in the c backend. Assuming of course this implementation is
   ## correct.
-  result = quote do:
-    var res: int32
-    {.emit: [res, " = sizeof(", `a`, ");"] .}
-    res
+  block: # refs #13943
+    proc impl(): csize_t =
+      {.emit:[result," = sizeof(", a, ");"].}
+    impl().int
 
-macro c_alignof(arg: untyped): untyped =
-  ## Bullet proof implementation that works on actual alignment
-  ## behavior measured at runtime.
-  let typeSym = genSym(nskType, "AlignTestType"&arg.repr)
-  result = quote do:
-    type
-      `typeSym` = object
-        causeAlign: byte
-        member: `arg`
-    c_offsetof(`typeSym`, member)
+template c_alignof(a: typed): int =
+  ## Bullet proof implementation that works using the sizeof operator
+  ## in the c backend. Assuming of course this implementation is
+  ## correct.
+  block: # refs #13943
+    proc fun2(): csize_t =
+      {.emit:[result," = _Alignof(", a, ");"].}
+    fun2().int
+
+when false: # old implementation
+  macro c_alignof(arg: untyped): untyped =
+    ## Bullet proof implementation that works on actual alignment
+    ## behavior measured at runtime.
+    let typeSym = genSym(nskType, "AlignTestType"&arg.repr)
+    result = quote do:
+      type
+        `typeSym` = object
+          causeAlign: byte
+          member: `arg`
+      c_offsetof(`typeSym`, member)
 
 macro testAlign(arg:untyped):untyped =
   let prefix = newLit(arg.lineinfo & "  alignof " & arg.repr & " ")
@@ -379,7 +389,7 @@ testinstance:
     else:
       doAssert sizeof(SimpleAlignment) > 10
 
-    testSizeAlignOf(t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo)
+    testSizeAlignOf [t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo]
 
     type
       WithBitsize {.objectconfig.} = object
@@ -538,11 +548,6 @@ proc foobar() =
   doAssert alignof(Pod) == alignof(Pod2)
 foobar()
 
-if failed:
-  quit("FAIL")
-else:
-  echo "OK"
-
 ##########################################
 # sizeof macros API
 ##########################################
@@ -687,10 +692,42 @@ reject:
 reject:
   const off8 = offsetof(MyPackedCaseObject, val5)
 
+{.emit:"""
+enum CFoo {cfoo0,cfoo1};
+typedef enum CFoo CFoo;
+""".}
 
-type
-  O0 = object
-  T0 = tuple[]
+block: # issue #13945
+  type
+    O0 = object
+    T0 = tuple[]
+    O0Arr = array[10, O0]
+    ArrEmpty = array[0, float]
+    Bar2 = object
+      x: O0
+      y: cint
+    BarTup = (O0, cint)
+    BarTup2 = (T0, T0)
+    FooEnum = enum
+      k0 = 1.cint
+      k1, k2, k3
+    CFoo {.importc: "CFoo".} = enum cfoo0, cfoo1
 
-doAssert sizeof(O0) == 1
-doAssert sizeof(T0) == 1
+  doAssert sizeof(O0) == 1
+  doAssert sizeof(T0) == 1
+  static:
+    doAssert sizeof(O0) == 1
+    doAssert sizeof(T0) == 1
+
+  testSizeAlignOf [
+    O0,
+    T0,
+    O0Arr,
+    Bar2,
+    BarTup,
+    BarTup2,
+    FooEnum,
+    # ArrEmpty, # fails: sizeof: 0 vs c_sizeof: 8 pending https://github.com/nim-lang/Nim/issues/14786
+    # CFoo, # pending https://github.com/nim-lang/Nim/issues/13927
+  ]
+doAssert not failed # make sure it's the last statement to be safe
