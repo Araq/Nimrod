@@ -625,9 +625,10 @@ proc processPragma(c: PContext, n: PNode, i: int) =
   elif it.safeLen != 2 or it[0].kind != nkIdent or it[1].kind != nkIdent:
     invalidPragma(c, n)
 
-  var userPragma = newSym(skTemplate, it[1].ident, nil, it.info, c.config.options)
+  var userPragma = newSym(skPragma, it[1].ident, nil, it.info, c.config.options)
   userPragma.ast = newNode(nkPragma, n.info, n.sons[i+1..^1])
   strTableAdd(c.userPragmas, userPragma)
+  strTableAdd(c.currentScope.symbols, userPragma)
 
 proc pragmaRaisesOrTags(c: PContext, n: PNode) =
   proc processExc(c: PContext, x: PNode) =
@@ -733,7 +734,7 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
   else:
     result = qualifiedLookUp(c, n, {checkUndeclared})
 
-proc semCustomPragma(c: PContext, n: PNode): PNode =
+proc semCustomPragmaResolve(c: PContext, n: PNode): PNode =
   var callNode: PNode
 
   if n.kind in {nkIdent, nkSym}:
@@ -747,8 +748,9 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
   else:
     invalidPragma(c, n)
     return n
+  result = c.semOverloadedCall(c, callNode, n, {skTemplate}, {efNoUndeclared})
 
-  let r = c.semOverloadedCall(c, callNode, n, {skTemplate}, {efNoUndeclared})
+proc semCustomPragma(c: PContext, n: PNode, r: PNode): PNode =
   if r.isNil or sfCustomPragma notin r[0].sym.flags:
     invalidPragma(c, n)
     return n
@@ -762,6 +764,23 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
     # pragma(arg) -> pragma: arg
     result.transitionSonsKind(n.kind)
 
+proc semCustomPragmaMulti(c: PContext, n: PNode, i: var int, sym: PSym, validPragmas: TSpecialWords, isStatement: bool) =
+  let r = semCustomPragmaResolve(c, n[i])
+  template bail() =
+    n[i] = semCustomPragma(c, n[i], r)
+    return
+  if r.isNil: bail()
+  let r0 = r[0]
+  if r0.sym.kind != skTemplate: bail()
+  let userPragma = r0.sym
+  let body = userPragma.ast[bodyPos]
+  if body.len != 1: bail()
+  let ast2 = body[0]
+  if ast2.kind != nkPragma: bail()
+  pragma(c, sym, ast2, validPragmas, isStatement)
+  n.sons[i..i] = ast2.sons # expand user pragma with its content
+  i.inc(ast2.len - 1) # inc by -1 is ok, user pragmas was empty
+
 proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
                   validPragmas: TSpecialWords,
                   comesFromPush, isStatement: bool): bool =
@@ -771,7 +790,7 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
     processNote(c, it)
     return
   elif key.kind notin nkIdentKinds:
-    n[i] = semCustomPragma(c, it)
+    n[i] = semCustomPragma(c, it, semCustomPragmaResolve(c, it))
     return
   let ident = considerQuotedIdent(c, key)
   var userPragma = strTableGet(c.userPragmas, ident)
@@ -1184,7 +1203,7 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
     else:
       if sym == nil or (sym.kind in {skVar, skLet, skParam,
                         skField, skProc, skFunc, skConverter, skMethod, skType}):
-        n[i] = semCustomPragma(c, it)
+        semCustomPragmaMulti(c, n, i, sym, validPragmas, isStatement)
       elif sym != nil:
         illegalCustomPragma(c, it, sym)
       else:
