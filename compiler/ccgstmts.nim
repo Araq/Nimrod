@@ -9,6 +9,8 @@
 
 # included from cgen.nim
 
+from strutils import format
+
 const
   RangeExpandLimit = 256      # do not generate ranges
                               # over 'RangeExpandLimit' elements
@@ -1460,6 +1462,35 @@ proc genAsmOrEmitStmt(p: BProc, t: PNode, isAsmStmt=false): Rope =
     res.add("\L")
     result = res.rope
 
+type SectionKind = enum kUnknown, kFile, kProc
+
+proc determineSection(p: BProc, n: PNode): tuple[kind: SectionKind, filesec: TCFileSection, procsec: TCProcSection] =
+  template bail(msg) =
+    localError(p.config, n.info, msg)
+    return
+  template retFile(sec) = result = (kFile, sec, TCProcSection.default)
+  if n.len == 3:
+    let n1 = n[1]
+    if n1.kind != nkStrLit: bail("expected: 'nkStrLit', got '$1'".format n1.kind)
+    # using nkStrLit instead of nkIdent as it'll allow to pass a constant
+    # string argument to emit without ambiguity, eg:
+    # const section = "here"; emit(section): "/**/"
+    case n1.strVal.normalize
+    of "typeSection".normalize: retFile cfsTypes
+    of "varSection".normalize: retFile cfsVars
+    of "includeSection".normalize: retFile cfsHeaders
+    of "here".normalize: result = (kProc, TCFileSection.default, cpsStmts)
+    else: bail("expected: `typeSection, varSection, includeSection, here`, got: $1".format n1.ident.s)
+  elif n.len == 2: # legacy syntax; no need to add new section values here
+    let n = n[1]
+    if n.len >= 1 and n[0].kind in {nkStrLit..nkTripleStrLit}:
+      let sec = n[0].strVal
+      if sec.startsWith("/*TYPESECTION*/"): retFile cfsTypes
+      elif sec.startsWith("/*VARSECTION*/"): retFile cfsVars
+      elif sec.startsWith("/*INCLUDESECTION*/"): retFile cfsHeaders
+    if result.kind == kUnknown: result = (kUnknown, cfsProcHeaders, cpsStmts)
+  else: doAssert false, $n.len
+
 proc genAsmStmt(p: BProc, t: PNode) =
   assert(t.kind == nkAsmStmt)
   genLineDir(p, t)
@@ -1473,24 +1504,18 @@ proc genAsmStmt(p: BProc, t: PNode) =
   else:
     p.s(cpsStmts).add indentLine(p, runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s]))
 
-proc determineSection(n: PNode): TCFileSection =
-  result = cfsProcHeaders
-  if n.len >= 1 and n[0].kind in {nkStrLit..nkTripleStrLit}:
-    let sec = n[0].strVal
-    if sec.startsWith("/*TYPESECTION*/"): result = cfsTypes
-    elif sec.startsWith("/*VARSECTION*/"): result = cfsVars
-    elif sec.startsWith("/*INCLUDESECTION*/"): result = cfsHeaders
+proc isModuleLevel(p: BProc): bool =
+  p.prc == nil and p.breakIdx == 0
 
 proc genEmit(p: BProc, t: PNode) =
-  var s = genAsmOrEmitStmt(p, t[1])
-  if p.prc == nil:
-    # top level emit pragma?
-    let section = determineSection(t[1])
-    genCLineDir(p.module.s[section], t.info, p.config)
-    p.module.s[section].add(s)
+  var s = genAsmOrEmitStmt(p, t[^1])
+  let (status, fileSection, procSection) = determineSection(p, t)
+  if status == kFile or (status == kUnknown and p.isModuleLevel):
+    genCLineDir(p.module.s[fileSection], t.info, p.config)
+    p.module.s[fileSection].add(s)
   else:
     genLineDir(p, t)
-    line(p, cpsStmts, s)
+    line(p, procSection, s)
 
 proc genPragma(p: BProc, n: PNode) =
   for it in n.sons:

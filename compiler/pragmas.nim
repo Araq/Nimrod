@@ -530,10 +530,10 @@ proc processLink(c: PContext, n: PNode) =
   recordPragma(c, n, "link", found.string)
 
 proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
-  case n[1].kind
+  case n[^1].kind
   of nkStrLit, nkRStrLit, nkTripleStrLit:
     result = newNode(if n.kind == nkAsmStmt: nkAsmStmt else: nkArgList, n.info)
-    var str = n[1].strVal
+    var str = n[^1].strVal
     if str == "":
       localError(con.config, n.info, "empty 'asm' statement")
       return
@@ -566,20 +566,20 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
     result = newNode(nkAsmStmt, n.info)
 
 proc pragmaEmit(c: PContext, n: PNode) =
-  if n.kind notin nkPragmaCallKinds or n.len != 2:
+  if n.kind notin nkPragmaCallKinds or (n.len != 2 and n.len != 3):
     localError(c.config, n.info, errStringLiteralExpected)
   else:
-    let n1 = n[1]
+    let n1 = n[^1]
     if n1.kind == nkBracket:
       var b = newNodeI(nkBracket, n1.info, n1.len)
       for i in 0..<n1.len:
         b[i] = c.semExpr(c, n1[i])
-      n[1] = b
+      n[^1] = b
     else:
-      n[1] = c.semConstExpr(c, n1)
-      case n[1].kind
+      n[^1] = c.semConstExpr(c, n1)
+      case n[^1].kind
       of nkStrLit, nkRStrLit, nkTripleStrLit:
-        n[1] = semAsmOrEmit(c, n, '`')
+        n[^1] = semAsmOrEmit(c, n, '`')
       else:
         localError(c.config, n.info, errStringLiteralExpected)
 
@@ -766,6 +766,11 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
                   validPragmas: TSpecialWords,
                   comesFromPush, isStatement: bool): bool =
   var it = n[i]
+  if it.kind == nkExprColonExpr and it.len > 1 and it[0].kind in {nkCall}:
+    # pragma(args...): arg -> pragma(args..., arg) ; eg, for `emit(section): "foo"`
+    it = newTree(nkCall, it[0].sons & it[1])
+    n[i] = it
+
   var key = if it.kind in nkPragmaCallKinds and it.len > 1: it[0] else: it
   if key.kind == nkBracketExpr:
     processNote(c, it)
