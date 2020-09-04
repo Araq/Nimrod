@@ -81,29 +81,36 @@ doAssert(someGlobal == 10)
 block:
   # issue #14576
   # lots of these used to give: Error: internal error: genAddr: 2
-  proc byLent[T](a: T): lent T = a
+  proc byLentAny[T](a: T): lent T = a
+  proc byLentVar[T](a: var T): lent T = a # see also decls.byLent
   proc byPtr[T](a: T): ptr T = a.unsafeAddr
 
   block:
     let a = (10,11)
-    let (x,y) = byLent(a)
+    let (x,y) = byLentAny(a)
+    doAssert (x,y) == a
+  block:
+    var a = (10,11)
+    let (x,y) = byLentAny(a)
     doAssert (x,y) == a
 
   block:
-    when defined(c) and defined(release):
-      # bug; pending https://github.com/nim-lang/Nim/issues/14578
-      discard
-    else:
-      let a = 10
-      doAssert byLent(a) == 10
-      let a2 = byLent(a)
-      doAssert a2 == 10
+    let a = 10
+    doAssert byLentAny(a) == 10
+    let a2 = byLentAny(a)
+    doAssert a2 == 10
 
   block:
     let a = [11,12]
-    doAssert byLent(a) == [11,12]
+    doAssert byLentAny(a) == [11,12]
     let a2 = (11,)
-    doAssert byLent(a2) == (11,)
+    doAssert byLentAny(a2) == (11,)
+
+  block:
+    var a = [11,12]
+    doAssert byLentVar(a) == [11,12]
+    var a2 = (11,)
+    doAssert byLentVar(a2) == (11,)
 
   block:
     when defined(c) and defined(release):
@@ -117,9 +124,9 @@ block:
       doAssert byPtr(a3)[] == 14
 
   block:
-    proc byLent2[T](a: seq[T]): lent T = a[1]
+    proc byLentElem[T](a: seq[T]): lent T = a[1]
     var a = @[20,21,22]
-    doAssert byLent2(a) == 21
+    doAssert byLentElem(a) == 21
 
   block: # sanity checks
     proc bar[T](a: var T): var T = a
@@ -134,6 +141,6 @@ block:
     bar(a2).inc
     doAssert a2 == 13
 
-  block: # xxx: bug this doesn't work
+  block: # pending bug #14877
     when false:
       proc byLent2[T](a: T): lent type(a[0]) = a[0]

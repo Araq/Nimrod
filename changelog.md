@@ -168,7 +168,7 @@
   cannot be applied to every use case. The limitations and the (lack of) reliability
   of `round` are well documented.
 
-
+- Add `decls.byLent` to turn an argument into a let param, useful for overload resolution.
 
 ## Language changes
 
