@@ -2682,6 +2682,13 @@ proc genConstStmt(p: BProc, n: PNode) =
       if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(p, sym):
         genConstDefinition(m, p, sym)
 
+# proc containsRef(t: PType): bool =
+#   # consider moving to 
+#   let t = skipTypes(t, abstractVar)
+#   case t.kind
+#   of tyRef: return true
+#   of tySequence: return t[]
+
 proc expr(p: BProc, n: PNode, d: var TLoc) =
   when defined(nimCompilerStackraceHints):
     setFrameMsg p.config$n.info & " " & $n.kind
@@ -2714,8 +2721,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
       putLocIntoDest(p, d, sym.loc)
     of skConst:
-      let t = skipTypes(sym.typ, abstractVar)
-      if t.kind == tyRef:
+      if containsTyRef(sym.typ.skipTypes(abstractVar)):
         expr(p, sym.ast, d)
       elif isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
