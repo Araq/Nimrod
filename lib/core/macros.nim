@@ -804,6 +804,66 @@ proc newLit*[T: tuple](arg: T): NimNode {.compileTime.} =
     for b in arg.fields:
       result.add newLit(b)
 
+proc astGen*(n: NimNode, compact = false): NimNode {.compileTime, benign, since: (1,3,7).} =
+  ## Convert the AST ``n`` to the code required to generate that AST.
+  ## Does currently not preserve line information. When `compact` is false,
+  ## tree nodes are represented via `newTree`, else using more idiomatic procs,
+  ## such as `newCall` instead of `nnkCall.newTree`.
+  ## The returned code is subject to change while preserving the same semantics.
+  runnableExamples:
+    macro myQuoteAst(arg: untyped): untyped = arg.astGen
+    static:
+      let n = myQuoteAst:
+        var x = baz.create(56)
+      doAssert n.repr == "\nvar x = baz.create(56)"
+
+    # returns more idiomatic code than `astGenRepr`
+    macro astGenRepr2(arg: untyped): string = arg.astGen(compact = true).repr.newLit
+    const code = astGenRepr2:
+      var x = baz.create(56)
+    # exact representation is subject to change, but returns equivalent AST.
+    doAssert code == """
+newStmtList(nnkVarSection.newTree(nnkIdentDefs.newTree(ident"x", newEmptyNode(),
+    newCall(newDotExpr(ident"baz", ident"create"), newLit(56)))))"""
+
+  const LitKinds = nnkLiterals-{nnkNilLit}
+  case n.kind
+  of nnkNilLit:
+    result = newCall(ident("newNimNode"), ident("nnkNilLit"))
+  of nnkEmpty:
+    result = newCall(ident("newEmptyNode"))
+  of nnkIdent:
+    result = nnkCallStrLit.newTree(ident("ident"), newLit(n.strVal))
+  of nnkSym:
+    assert false, "cannot preserve symbol binding through newLit"
+  of nnkNone:
+    result = newCall(ident("newNimNode"), ident("nnkNone"))
+  of nnkCommentStmt:
+    result = newCall("newCommentStmtNode", newLit(n.strVal))
+  of LitKinds:
+    result = newCall(bindSym"newLit", n)
+  else:
+    template fn() =
+      result = newCall(nnkDotExpr.newTree(ident($n.kind), ident("newTree")))
+    if not compact: fn()
+    else:
+      # some nodes kinds have constructor procs
+      case n.kind
+      of nnkStmtList:
+        result = newCall(ident"newStmtList")
+      of nnkCall:
+        result = newCall(ident"newCall")
+      of nnkAsgn:
+        result = newCall(ident"newAssignment")
+      of nnkDotExpr:
+        result = newCall(ident"newDotExpr")
+      of nnkExprColonExpr:
+        result = newCall(ident"newColonExpr")
+      else:
+        fn()
+    for i in 0 ..< n.len:
+      result.add astGen(n[i], compact)
+
 proc nestList*(op: NimNode; pack: NimNode): NimNode {.compileTime.} =
   ## Nests the list `pack` into a tree of call expressions:
   ## ``[a, b, c]`` is transformed into ``op(a, op(c, d))``.
@@ -874,7 +934,8 @@ proc astGenRepr*(n: NimNode): string {.compileTime, benign.} =
   ## Convert the AST ``n`` to the code required to generate that AST.
   ##
   ## See also ``repr``, ``treeRepr``, and ``lispRepr``.
-
+  # xxx: use `result = repr(newLit(n))` after improving repr formatting, or
+  # reformat output of `repr`, see #13888
   const
     NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkNone, nnkCommentStmt}
     LitKinds = {nnkCharLit..nnkInt64Lit, nnkFloatLit..nnkFloat64Lit, nnkStrLit..nnkTripleStrLit}
