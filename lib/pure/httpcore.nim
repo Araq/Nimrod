@@ -219,7 +219,8 @@ func parseList(line: string, list: var seq[string], start: int): int =
       i.inc # Skip ,
     current.setLen(0)
 
-func parseHeader*(line: string): tuple[key: string, value: seq[string]] =
+func parseHeader*(line: string): tuple[key: string, value: seq[string]]
+    {.deprecated: "Deprecated use `parseHeaderField` instead".} =
   ## Parses a single raw header HTTP line into key value pairs.
   ##
   ## Used by ``asynchttpserver`` and ``httpclient`` internally and should not
@@ -234,6 +235,20 @@ func parseHeader*(line: string): tuple[key: string, value: seq[string]] =
       result.value.add line.substr(i)
     else:
       i += parseList(line, result.value, i)
+  elif result.key.len > 0:
+    result.value = @[""]
+  else:
+    result.value = @[]
+
+func parseHeaderField*(line: string): tuple[key: string, value: seq[string]] =
+  ## Parses a single raw header HTTP line into key value pairs.
+  result.value = @[]
+  var i = 0
+  i = line.parseUntil(result.key, ':')
+  inc(i) # skip :
+  if i < len(line):
+    i += line.skipWhitespace(i)
+    result.value.add line.substr(i)
   elif result.key.len > 0:
     result.value = @[""]
   else:
