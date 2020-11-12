@@ -296,8 +296,10 @@
 - `nimscript` now handles `except Exception as e`.
 
 - The `cstring` doesn't support `[]=` operator in JS backend.
+- `nimscript` now handles `except Exception as e`
 
 - nil dereference is not allowed at compile time. `cast[ptr int](nil)[]` is rejected at compile time.
+- The `cstring` doesn't support `[]=` operator in JS backend.
 
 - `typetraits.distinctBase` now is identity instead of error for non distinct types.
 
