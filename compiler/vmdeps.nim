@@ -97,6 +97,7 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
   of tyNil: result = atomicType("nil", mNil)
   of tyUntyped: result = atomicType("untyped", mExpr)
   of tyTyped: result = atomicType("typed", mStmt)
+  of tyAliasSym: result = atomicType("aliasSym", mAliasSym)
   of tyVoid: result = atomicType("void", mVoid)
   of tyEmpty: result = atomicType("empty", mNone)
   of tyUncheckedArray:
@@ -299,7 +300,6 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
       if t.n != nil:
         result.add t.n.copyTree
   of tyOwned: result = mapTypeToBracket("owned", mBuiltinType, t, info)
-  of tyOptDeprecated: doAssert false
 
 proc opMapTypeToAst*(cache: IdentCache; t: PType; info: TLineInfo; idgen: IdGenerator): PNode =
   result = mapTypeToAstX(cache, t, info, idgen, inst=false, allowRecursionX=true)

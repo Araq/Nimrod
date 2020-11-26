@@ -427,16 +427,17 @@ type
       # instantiation and prior to this it has the potential to
       # be any type.
 
-    tyOptDeprecated
-      # 'out' parameter. Comparable to a 'var' parameter but every
-      # path must assign a value to it before it can be read from.
+    tyAliasSym
+      ## type of symbol alias
 
     tyVoid
       # now different from tyEmpty, hurray!
 
 static:
-  # remind us when TTypeKind stops to fit in a single 64-bit word
   assert TTypeKind.high.ord <= 63
+    # remind us when TTypeKind stops to fit in a single 64-bit word
+    # consider merging some types if profiling shows a slowdown (though it's
+    # unlikely)
 
 const
   tyPureObject* = tyTuple
@@ -499,7 +500,7 @@ type
     tfFromGeneric,    # type is an instantiation of a generic; this is needed
                       # because for instantiations of objects, structural
                       # type equality has to be used
-    tfUnresolved,     # marks unresolved typedesc/static params: e.g.
+    tfUnresolved,     # marks unresolved typedesc/static/aliasSym params: e.g.
                       # proc foo(T: typedesc, list: seq[T]): var T
                       # proc foo(L: static[int]): array[L, int]
                       # can be attached to ranges to indicate that the range
@@ -588,7 +589,8 @@ type
                           # file (it is loaded on demand, which may
                           # mean: never)
     skPackage,            # symbol is a package (used for canonicalization)
-    skAlias               # an alias (needs to be resolved immediately)
+    skAlias,              # an alias (needs to be resolved immediately)
+    skAliasGroup          # nkOpenSymChoice as a symbol
   TSymKinds* = set[TSymKind]
 
 const
@@ -680,8 +682,9 @@ type
     mInstantiationInfo, mGetTypeInfo, mGetTypeInfoV2,
     mNimvm, mIntDefine, mStrDefine, mBoolDefine, mRunnableExamples,
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
-    mSymIsInstantiationOf, mNodeId
-
+    mSymIsInstantiationOf, mNodeId,
+    mAlias2,
+    mAliasSym,
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -832,6 +835,7 @@ type
       procInstCache*: seq[PInstantiation]
       gcUnsafetyReason*: PSym  # for better error messages wrt gcsafe
       transformedBody*: PNode  # cached body after transf pass
+      aliasTarget*: PSym # used for skTemplate
     of skModule, skPackage:
       # modules keep track of the generic symbols they use from other modules.
       # this is because in incremental compilation, when a module is about to
@@ -848,6 +852,8 @@ type
       guard*: PSym
       bitsize*: int
       alignment*: int # for alignment
+    of skAliasGroup:
+      nodeAliasGroup*: PNode
     else: nil
     magic*: TMagic
     typ*: PType
@@ -1212,7 +1218,7 @@ proc astdef*(s: PSym): PNode =
 
 proc isMetaType*(t: PType): bool =
   return t.kind in tyMetaTypes or
-         (t.kind == tyStatic and t.n == nil) or
+         (t.kind in {tyStatic, tyAliasSym} and t.n == nil) or
          tfHasMeta in t.flags
 
 proc isUnresolvedStatic*(t: PType): bool =

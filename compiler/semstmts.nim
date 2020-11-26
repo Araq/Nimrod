@@ -1987,7 +1987,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     # for DLL generation we allow sfImportc to have a body, for use in VM
     if sfBorrow in s.flags:
       localError(c.config, n[bodyPos].info, errImplOfXNotAllowed % s.name.s)
-    let usePseudoGenerics = kind in {skMacro, skTemplate}
+    let usePseudoGenerics = kind in {skMacro, skTemplate} and not isMacroRealGeneric(s)
     # Macros and Templates can have generic parameters, but they are
     # only used for overload resolution (there is no instantiation of
     # the symbol, so we must process the body now)

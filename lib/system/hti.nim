@@ -69,8 +69,8 @@ type
     tyAnythingHidden,
     tyStaticHidden,
     tyFromExprHidden,
-    tyOptDeprecated,
-    tyVoidHidden
+    tyAliasSym,
+    tyVoidHidden,
 
   TNimNodeKind = enum nkNone, nkSlot, nkList, nkCase
   TNimNode {.compilerproc.} = object
