@@ -3187,38 +3187,59 @@ proc getFileInfo*(path: string, followSymlink = true): FileInfo {.noWeirdTarget.
         raiseOSError(osLastError(), path)
     rawToFormalFileInfo(rawInfo, path, result)
 
-proc sameFileContent*(path1, path2: string): bool {.rtl, extern: "nos$1",
-  tags: [ReadIOEffect], noWeirdTarget.} =
-  ## Returns true if both pathname arguments refer to files with identical
-  ## binary content.
+proc sameFileContent*(path1, path2: string; checkFiles = false, checkSize = false, bufferSize = 0.Natural): bool
+  {.rtl, extern: "nos$1", tags: [ReadIOEffect], noWeirdTarget.} =
+  ## Returns `true` if both pathname arguments refer to files with identical binary content.
+  ##
+  ## If `checkSize` is `true` then checks the file sizes *before reading the files*,
+  ## if the files have different file sizes they can not have the same contents,
+  ## `checkSize = true` may be faster, specially for very big files.
+  ## This does not fail if the file never existed in the first place, unless `checkFiles = true`.
   ##
   ## See also:
   ## * `sameFile proc <#sameFile,string,string>`_
-  var
-    a, b: File
-  if not open(a, path1): return false
-  if not open(b, path2):
+  runnableExamples:
+    doAssert sameFileContent(currentSourcePath, currentSourcePath, checkSize = true, bufferSize = 4096)
+  var a, b: File
+  var bufA, bufB: pointer
+  try:  # readBuffer or open may or may not raise IOError.
+    if not open(a, path1):
+      if checkFiles:
+        raise newException(IOError, "Can not open file: $1" % [path1])
+      return false
+    if not open(b, path2):
+      if checkFiles:
+        raise newException(IOError, "Can not open file: $1" % [path2])
+      return false
+
+    var bufferSize = bufferSize
+    if bufferSize == 0 or checkSize:
+      var infoA = getFileInfo(a)
+      if bufferSize == 0: bufferSize = infoA.blockSize
+      var infoB = getFileInfo(a)
+      # see also: getFileSize
+      if checkSize and infoA.size != infoB.size: return false
+    bufA = alloc(bufferSize)
+    bufB = alloc(bufferSize)
+    while true:
+      let readA = readBuffer(a, bufA, bufferSize)
+      let readB = readBuffer(b, bufB, bufferSize)
+      if readA != readB: break
+        # xxx: we should handle short reads, e.g. EINTR
+      if readA > 0:
+        result = equalMem(bufA, bufB, readA)
+        if not result: break
+      if readA != bufferSize:
+        let enda = endOfFile(a)
+        let endb = endOfFile(b)
+        if enda != endb: return false
+        if enda: return true
+  finally:
+    if bufA != nil: dealloc(bufA)
+      # xxx should `dealloc` be changed to allow nil or would that impact performance?
+    if bufB != nil: dealloc(bufB)
     close(a)
-    return false
-  let bufSize = getFileInfo(a).blockSize
-  var bufA = alloc(bufSize)
-  var bufB = alloc(bufSize)
-  while true:
-    var readA = readBuffer(a, bufA, bufSize)
-    var readB = readBuffer(b, bufB, bufSize)
-    if readA != readB:
-      result = false
-      break
-    if readA == 0:
-      result = true
-      break
-    result = equalMem(bufA, bufB, readA)
-    if not result: break
-    if readA != bufSize: break # end of file
-  dealloc(bufA)
-  dealloc(bufB)
-  close(a)
-  close(b)
+    close(b)
 
 proc isHidden*(path: string): bool {.noWeirdTarget.} =
   ## Determines whether ``path`` is hidden or not, using `this
