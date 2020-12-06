@@ -154,6 +154,124 @@ proc isDigit*(c: char): bool {.noSideEffect,
     doAssert isDigit('8') == true
   return c in Digits
 
+func isNumeric*(s: string, enableNaNInf, enableLooseDot = false): bool =
+  ## Checks whether the string is numeric.
+  ## When the string is an integer, float or exponential, it returns true,
+  ## otherwise it returns false.
+  ## The `enableNaNInf` value indicates whether the `NaN` and `Inf` values
+  ## are valid.
+  ## The `enableLooseDot` value indicates whether loose point values such as
+  ## `.9` and `9.` are valid. 
+  ##
+  ## **Note:** The reason that `parseFloat()` is not used to achieve this is its
+  ## poor performance.
+  runnableExamples:
+    doAssert isNumeric("123") == true
+    doAssert isNumeric("123.45") == true
+    doAssert isNumeric("+123.45") == true
+    doAssert isNumeric("123.45e-2") == true
+    doAssert isNumeric("+123.45E-2") == true
+    doAssert isNumeric("-123.45e2") == true
+    doAssert not isNumeric("e123.45") == true
+    doAssert not isNumeric("abc") == true
+    doAssert not isNumeric("123abc") == true
+    doAssert not isNumeric("123.45.6") == true
+    doAssert not isNumeric("123.45e++5") == true
+    doAssert not isNumeric("5.2+e1") == true
+    doAssert not isNumeric(".9") == true
+    doAssert not isNumeric("Inf") == true
+    doAssert not isNumeric("-Inf") == true
+    doAssert not isNumeric("NaN") == true
+    doAssert not isNumeric("nAn") == true
+    doAssert isNumeric("0.000_005") == true
+    doAssert isNumeric("1e1_00") == true
+    doAssert isNumeric("0.00_0001") == true
+    doAssert isNumeric("0.00__00_01") == true
+    doAssert isNumeric("0.0_01") == true
+    doAssert isNumeric("0.00_000_1") == true
+    doAssert isNumeric("0.00000_1") == true
+    doAssert isNumeric("1_0.00_0001") == true
+    doAssert isNumeric("1__00.00_0001") == true
+    doAssert not isNumeric("1_0._00_0001") == true
+    doAssert not isNumeric("_1_0_00.0001") == true
+    doAssert not isNumeric("10.00E_01") == true
+    doAssert not isNumeric("10.00E") == true
+    doAssert not isNumeric("10.00E+") == true
+    doAssert not isNumeric("10.00E-") == true
+    doAssert not isNumeric("10.00E_") == true
+    doAssert not isNumeric("10.00A") == true
+  let length = s.len
+  if length == 3:
+    if (s[0] in {'i', 'I'} and s[1] in {'n', 'N'} and s[2] in {'f', 'F'}) or
+       (s[0] in {'n', 'N'} and s[1] in {'a', 'A'} and s[2] in {'n', 'N'}):
+      if enableNaNInf:
+        return true
+      else:
+        return false
+  if length == 4:
+    if (s[0] in {'+', '-'} and s[1] in {'i', 'I'} and s[2] in {'n', 'N'} and s[3] in {'f', 'F'}) or
+       (s[0] in {'+', '-'} and s[1] in {'n', 'N'} and s[2] in {'a', 'A'} and s[3] in {'n', 'N'}):
+      if enableNaNInf:
+        return true
+      else:
+        return false
+
+  var eLeft, eRight, dot, e, num = false
+  let sHigh = s.len - 1
+  for i in countup(0, sHigh):
+    case s[i]
+    of '+', '-':
+      if i == sHigh:
+        return false
+      if e == false:
+        if num:
+          return false
+        if eLeft:
+          return false
+        eLeft = true
+      else:
+        if num:
+          return false
+        if eRight:
+          return false
+        eRight = true
+    of '.':
+      if dot:
+        return false
+      if not enableLooseDot:
+        if num == false:
+          return false
+        else:
+          if i == sHigh:
+            return false
+          if s[i+1] in {'e', 'E'}:
+            return false
+      num = false
+      dot = true
+    of 'e', 'E':
+      if i == sHigh:
+        return false
+      if num or dot:
+        if e:
+          return false
+        num = false
+      else:
+        return false
+      e = true
+    of '0'..'9':
+      num = true
+    of '_':
+      if num == false:
+        return false
+      if dot and num == false:
+        return false
+      if e and num == false:
+        return false
+    else:
+      return false
+
+  return true
+  
 proc isSpaceAscii*(c: char): bool {.noSideEffect,
   rtl, extern: "nsuIsSpaceAsciiChar".} =
   ## Checks whether or not `c` is a whitespace character.
