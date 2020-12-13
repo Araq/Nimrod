@@ -170,8 +170,17 @@ proc newDocumentor*(filename: AbsoluteFile; cache: IdentCache; conf: ConfigRef, 
   result.conf = conf
   result.cache = cache
   result.outDir = conf.outDir.string
-  initRstGenerator(result[], (if conf.cmd != cmdRst2tex: outHtml else: outLatex),
-                   conf.configVars, filename.string, {roSupportRawDirective, roSupportMarkdown},
+  var outFormat =
+    case conf.cmd:
+    of cmdRst2tex: outLatex
+    of cmdRst2html: outHtml
+    else:
+      case conf.command.normalize:
+      of "jsondoc", "jsondoc2": outJson
+      of "doc", "doc2": outHtml
+      else: outHtml
+  initRstGenerator(result[], outFormat, conf.configVars, filename.string,
+                   {roSupportRawDirective, roSupportMarkdown},
                    docgenFindFile, compilerMsgHandler)
 
   if conf.configVars.hasKey("doc.googleAnalytics"):
@@ -900,7 +909,11 @@ proc genJsonItem(d: PDoc, n, nameNode: PNode, k: TSymKind): JsonNode =
   result = %{ "name": %name, "type": %($k), "line": %n.info.line.int,
                  "col": %n.info.col}
   if comm.len > 0:
-    result["description"] = %comm
+    try:
+      result["description"] = sanitize(comm)
+    except:
+      echo "Unable to parse: ", getCurrentExceptionMsg()
+      result["description"] = %comm
   if r.buf.len > 0:
     result["code"] = %r.buf
   if k in routineKinds:
@@ -1291,7 +1304,7 @@ proc writeOutputJson*(d: PDoc, useWarning = false) =
     modDesc &= desc
   let content = %*{"orig": d.filename,
     "nimble": getPackageName(d.conf, d.filename),
-    "moduleDescription": modDesc,
+    "moduleDescription": sanitize(modDesc),
     "entries": d.jArray}
   if optStdout in d.conf.globalOptions:
     write(stdout, $content)
