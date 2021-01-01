@@ -48,7 +48,7 @@ type
   SortOrder* = enum
     Descending, Ascending
 
-proc `*`*(x: int, order: SortOrder): int {.inline.} =
+func `*`*(x: int, order: SortOrder): int {.inline.} =
   ## Flips ``x`` if ``order == Descending``.
   ## If ``order == Ascending`` then ``x`` is returned.
   ##
@@ -70,7 +70,7 @@ template fillImpl[T](a: var openArray[T], first, last: int, value: T) =
     a[x] = value
     inc(x)
 
-proc fill*[T](a: var openArray[T], first, last: Natural, value: T) =
+func fill*[T](a: var openArray[T], first, last: Natural, value: T) =
   ## Fills the slice ``a[first..last]`` with ``value``.
   ##
   ## If an invalid range is passed, it raises IndexDefect.
@@ -83,7 +83,7 @@ proc fill*[T](a: var openArray[T], first, last: Natural, value: T) =
     doAssertRaises(IndexDefect, a.fill(1, 7, 9))
   fillImpl(a, first, last, value)
 
-proc fill*[T](a: var openArray[T], value: T) =
+func fill*[T](a: var openArray[T], value: T) =
   ## Fills the container ``a`` with ``value``.
   runnableExamples:
     var a: array[6, int]
@@ -94,14 +94,14 @@ proc fill*[T](a: var openArray[T], value: T) =
   fillImpl(a, 0, a.high, value)
 
 
-proc reverse*[T](a: var openArray[T], first, last: Natural) =
+func reverse*[T](a: var openArray[T], first, last: Natural) =
   ## Reverses the slice ``a[first..last]``.
   ##
   ## If an invalid range is passed, it raises IndexDefect.
   ##
   ## **See also:**
-  ## * `reversed proc<#reversed,openArray[T],Natural,int>`_ reverse a slice and returns a ``seq[T]``
-  ## * `reversed proc<#reversed,openArray[T]>`_ reverse and returns a ``seq[T]``
+  ## * `reversed func<#reversed,openArray[T],Natural,int>`_ reverse a slice and returns a ``seq[T]``
+  ## * `reversed func<#reversed,openArray[T]>`_ reverse and returns a ``seq[T]``
   runnableExamples:
     var a = [1, 2, 3, 4, 5, 6]
     a.reverse(1, 3)
@@ -116,12 +116,12 @@ proc reverse*[T](a: var openArray[T], first, last: Natural) =
     dec(y)
     inc(x)
 
-proc reverse*[T](a: var openArray[T]) =
+func reverse*[T](a: var openArray[T]) =
   ## Reverses the contents of the container ``a``.
   ##
   ## **See also:**
-  ## * `reversed proc<#reversed,openArray[T],Natural,int>`_ reverse a slice and returns a ``seq[T]``
-  ## * `reversed proc<#reversed,openArray[T]>`_ reverse and returns a ``seq[T]``
+  ## * `reversed func<#reversed,openArray[T],Natural,int>`_ reverse a slice and returns a ``seq[T]``
+  ## * `reversed func<#reversed,openArray[T]>`_ reverse and returns a ``seq[T]``
   runnableExamples:
     var a = [1, 2, 3, 4, 5, 6]
     a.reverse()
@@ -130,14 +130,14 @@ proc reverse*[T](a: var openArray[T]) =
     assert a == [1, 2, 3, 4, 5, 6]
   reverse(a, 0, max(0, a.high))
 
-proc reversed*[T](a: openArray[T], first: Natural, last: int): seq[T] =
+func reversed*[T](a: openArray[T], first: Natural, last: int): seq[T] =
   ## Returns the reverse of the slice ``a[first..last]``.
   ##
   ## If an invalid range is passed, it raises IndexDefect.
   ##
   ## **See also:**
-  ## * `reverse proc<#reverse,openArray[T],Natural,Natural>`_ reverse a slice
-  ## * `reverse proc<#reverse,openArray[T]>`_
+  ## * `reverse func<#reverse,openArray[T],Natural,Natural>`_ reverse a slice
+  ## * `reverse func<#reverse,openArray[T]>`_
   runnableExamples:
     let
       a = [1, 2, 3, 4, 5, 6]
@@ -152,12 +152,12 @@ proc reversed*[T](a: openArray[T], first: Natural, last: int): seq[T] =
     dec(i)
     inc(x)
 
-proc reversed*[T](a: openArray[T]): seq[T] =
+func reversed*[T](a: openArray[T]): seq[T] =
   ## Returns the reverse of the container ``a``.
   ##
   ## **See also:**
-  ## * `reverse proc<#reverse,openArray[T],Natural,Natural>`_ reverse a slice
-  ## * `reverse proc<#reverse,openArray[T]>`_
+  ## * `reverse func<#reverse,openArray[T],Natural,Natural>`_ reverse a slice
+  ## * `reverse func<#reverse,openArray[T]>`_
   runnableExamples:
     let
       a = [1, 2, 3, 4, 5, 6]
@@ -165,7 +165,7 @@ proc reversed*[T](a: openArray[T]): seq[T] =
     assert b == @[6, 5, 4, 3, 2, 1]
   reversed(a, 0, a.high)
 
-proc binarySearch*[T, K](a: openArray[T], key: K,
+func binarySearch*[T, K](a: openArray[T], key: K,
               cmp: proc (x: T, y: K): int {.closure.}): int =
   ## Binary search for ``key`` in ``a``. Returns -1 if not found.
   ##
@@ -215,7 +215,7 @@ proc binarySearch*[T, K](a: openArray[T], key: K,
         b = mid
     if result >= len or cmp(a[result], key) != 0: result = -1
 
-proc binarySearch*[T](a: openArray[T], key: T): int =
+func binarySearch*[T](a: openArray[T], key: T): int =
   ## Binary search for ``key`` in ``a``. Returns -1 if not found.
   runnableExamples:
     assert binarySearch([0, 1, 2, 3, 4], 4) == 4
@@ -225,7 +225,7 @@ proc binarySearch*[T](a: openArray[T], key: T): int =
 const
   onlySafeCode = true
 
-proc lowerBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
+func lowerBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
     closure.}): int =
   ## Returns a position to the first element in the ``a`` that is greater than
   ## ``key``, or last if no such element is found.
@@ -239,8 +239,8 @@ proc lowerBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
   ## The expected return values are the same as that of ``system.cmp``.
   ##
   ## **See also:**
-  ## * `upperBound proc<#upperBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
-  ## * `upperBound proc<#upperBound,openArray[T],T>`_
+  ## * `upperBound func<#upperBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
+  ## * `upperBound func<#upperBound,openArray[T],T>`_
   runnableExamples:
     var arr = @[1, 2, 3, 5, 6, 7, 8, 9]
     assert arr.lowerBound(3, system.cmp[int]) == 2
@@ -260,7 +260,7 @@ proc lowerBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
     else:
       count = step
 
-proc lowerBound*[T](a: openArray[T], key: T): int = lowerBound(a, key, cmp[T])
+func lowerBound*[T](a: openArray[T], key: T): int = lowerBound(a, key, cmp[T])
   ## Returns a position to the first element in the ``a`` that is greater than
   ## ``key``, or last if no such element is found.
   ## In other words if you have a sorted sequence and you call
@@ -270,10 +270,10 @@ proc lowerBound*[T](a: openArray[T], key: T): int = lowerBound(a, key, cmp[T])
   ## The version uses the default comparison function ``cmp``.
   ##
   ## **See also:**
-  ## * `upperBound proc<#upperBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
-  ## * `upperBound proc<#upperBound,openArray[T],T>`_
+  ## * `upperBound func<#upperBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
+  ## * `upperBound func<#upperBound,openArray[T],T>`_
 
-proc upperBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
+func upperBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
     closure.}): int =
   ## Returns a position to the first element in the ``a`` that is not less
   ## (i.e. greater or equal to) than ``key``, or last if no such element is found.
@@ -287,8 +287,8 @@ proc upperBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
   ## return values are the same as that of ``system.cmp``.
   ##
   ## **See also:**
-  ## * `lowerBound proc<#lowerBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
-  ## * `lowerBound proc<#lowerBound,openArray[T],T>`_
+  ## * `lowerBound func<#lowerBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
+  ## * `lowerBound func<#lowerBound,openArray[T],T>`_
   runnableExamples:
     var arr = @[1, 2, 3, 5, 6, 7, 8, 9]
     assert arr.upperBound(2, system.cmp[int]) == 2
@@ -308,7 +308,7 @@ proc upperBound*[T, K](a: openArray[T], key: K, cmp: proc(x: T, k: K): int {.
     else:
       count = step
 
-proc upperBound*[T](a: openArray[T], key: T): int = upperBound(a, key, cmp[T])
+func upperBound*[T](a: openArray[T], key: T): int = upperBound(a, key, cmp[T])
   ## Returns a position to the first element in the ``a`` that is not less
   ## (i.e. greater or equal to) than ``key``, or last if no such element is found.
   ## In other words if you have a sorted sequence and you call
@@ -318,8 +318,8 @@ proc upperBound*[T](a: openArray[T], key: T): int = upperBound(a, key, cmp[T])
   ## The version uses the default comparison function ``cmp``.
   ##
   ## **See also:**
-  ## * `lowerBound proc<#lowerBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
-  ## * `lowerBound proc<#lowerBound,openArray[T],T>`_
+  ## * `lowerBound func<#lowerBound,openArray[T],K,proc(T,K)>`_ sorted by ``cmp`` in the specified order
+  ## * `lowerBound func<#lowerBound,openArray[T],T>`_
 
 template `<-` (a, b) =
   when defined(gcDestructors):
@@ -329,7 +329,7 @@ template `<-` (a, b) =
   else:
     copyMem(addr(a), addr(b), sizeof(T))
 
-proc merge[T](a, b: var openArray[T], lo, m, hi: int,
+func merge[T](a, b: var openArray[T], lo, m, hi: int,
               cmp: proc (x, y: T): int {.closure.}, order: SortOrder) =
   # optimization: If max(left) <= min(right) there is nothing to do!
   # 1 2 3 4  ## 5 6 7 8
@@ -399,9 +399,9 @@ func sort*[T](a: var openArray[T],
   ##       result = cmp(x.name, y.name)
   ##
   ## **See also:**
-  ## * `sort proc<#sort,openArray[T]>`_
-  ## * `sorted proc<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
-  ## * `sorted proc<#sorted,openArray[T]>`_
+  ## * `sort func<#sort,openArray[T]>`_
+  ## * `sorted func<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
+  ## * `sorted func<#sorted,openArray[T]>`_
   ## * `sortedByIt template<#sortedByIt.t,untyped,untyped>`_
   runnableExamples:
     var d = ["boo", "fo", "barr", "qux"]
@@ -421,14 +421,14 @@ func sort*[T](a: var openArray[T],
       dec(m, s*2)
     s = s*2
 
-proc sort*[T](a: var openArray[T], order = SortOrder.Ascending) = sort[T](a,
+func sort*[T](a: var openArray[T], order = SortOrder.Ascending) = sort[T](a,
     system.cmp[T], order)
   ## Shortcut version of ``sort`` that uses ``system.cmp[T]`` as the comparison function.
   ##
   ## **See also:**
   ## * `sort func<#sort,openArray[T],proc(T,T)>`_
-  ## * `sorted proc<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
-  ## * `sorted proc<#sorted,openArray[T]>`_
+  ## * `sorted func<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
+  ## * `sorted func<#sorted,openArray[T]>`_
   ## * `sortedByIt template<#sortedByIt.t,untyped,untyped>`_
 
 proc sorted*[T](a: openArray[T], cmp: proc(x, y: T): int {.closure.},
@@ -437,7 +437,7 @@ proc sorted*[T](a: openArray[T], cmp: proc(x, y: T): int {.closure.},
   ##
   ## **See also:**
   ## * `sort func<#sort,openArray[T],proc(T,T)>`_
-  ## * `sort proc<#sort,openArray[T]>`_
+  ## * `sort func<#sort,openArray[T]>`_
   ## * `sortedByIt template<#sortedByIt.t,untyped,untyped>`_
   runnableExamples:
     let
@@ -453,12 +453,12 @@ proc sorted*[T](a: openArray[T], cmp: proc(x, y: T): int {.closure.},
     result[i] = a[i]
   sort(result, cmp, order)
 
-proc sorted*[T](a: openArray[T], order = SortOrder.Ascending): seq[T] =
+func sorted*[T](a: openArray[T], order = SortOrder.Ascending): seq[T] =
   ## Shortcut version of ``sorted`` that uses ``system.cmp[T]`` as the comparison function.
   ##
   ## **See also:**
   ## * `sort func<#sort,openArray[T],proc(T,T)>`_
-  ## * `sort proc<#sort,openArray[T]>`_
+  ## * `sort func<#sort,openArray[T]>`_
   ## * `sortedByIt template<#sortedByIt.t,untyped,untyped>`_
   runnableExamples:
     let
@@ -472,7 +472,7 @@ proc sorted*[T](a: openArray[T], order = SortOrder.Ascending): seq[T] =
   sorted[T](a, system.cmp[T], order)
 
 template sortedByIt*(seq1, op: untyped): untyped =
-  ## Convenience template around the ``sorted`` proc to reduce typing.
+  ## Convenience template around the ``sorted`` func to reduce typing.
   ##
   ## The template injects the ``it`` variable which you can use directly in an
   ## expression.
@@ -482,9 +482,9 @@ template sortedByIt*(seq1, op: untyped): untyped =
   ##
   ## **See also:**
   ## * `sort func<#sort,openArray[T],proc(T,T)>`_
-  ## * `sort proc<#sort,openArray[T]>`_
-  ## * `sorted proc<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
-  ## * `sorted proc<#sorted,openArray[T]>`_
+  ## * `sort func<#sort,openArray[T]>`_
+  ## * `sorted func<#sorted,openArray[T],proc(T,T)>`_ sorted by ``cmp`` in the specified order
+  ## * `sorted func<#sorted,openArray[T]>`_
   runnableExamples:
     type Person = tuple[name: string, age: int]
     var
@@ -515,7 +515,7 @@ func isSorted*[T](a: openArray[T],
   ## to ``sort``. Requires O(n) time.
   ##
   ## **See also:**
-  ## * `isSorted proc<#isSorted,openArray[T]>`_
+  ## * `isSorted func<#isSorted,openArray[T]>`_
   runnableExamples:
     let
       a = [2, 3, 1, 5, 4]
@@ -534,7 +534,7 @@ func isSorted*[T](a: openArray[T],
     if cmp(a[i], a[i+1]) * order > 0:
       return false
 
-proc isSorted*[T](a: openArray[T], order = SortOrder.Ascending): bool =
+func isSorted*[T](a: openArray[T], order = SortOrder.Ascending): bool =
   ## Shortcut version of ``isSorted`` that uses ``system.cmp[T]`` as the comparison function.
   ##
   ## **See also:**
@@ -554,7 +554,7 @@ proc isSorted*[T](a: openArray[T], order = SortOrder.Ascending): bool =
     assert isSorted(e) == false
   isSorted(a, system.cmp[T], order)
 
-proc product*[T](x: openArray[seq[T]]): seq[seq[T]] =
+func product*[T](x: openArray[seq[T]]): seq[seq[T]] =
   ## Produces the Cartesian product of the array. Warning: complexity
   ## may explode.
   runnableExamples:
@@ -588,7 +588,7 @@ proc product*[T](x: openArray[seq[T]]): seq[seq[T]] =
     index = 0
     indexes[index] -= 1
 
-proc nextPermutation*[T](x: var openArray[T]): bool {.discardable.} =
+func nextPermutation*[T](x: var openArray[T]): bool {.discardable.} =
   ## Calculates the next lexicographic permutation, directly modifying ``x``.
   ## The result is whether a permutation happened, otherwise we have reached
   ## the last-ordered permutation.
@@ -597,7 +597,7 @@ proc nextPermutation*[T](x: var openArray[T]): bool {.discardable.} =
   ## will **not** give you all permutations but stop with last.
   ##
   ## **See also:**
-  ## * `prevPermutation proc<#prevPermutation,openArray[T]>`_
+  ## * `prevPermutation func<#prevPermutation,openArray[T]>`_
   runnableExamples:
     var v = @[0, 1, 2, 3]
     assert v.nextPermutation() == true
@@ -628,13 +628,13 @@ proc nextPermutation*[T](x: var openArray[T]): bool {.discardable.} =
 
   result = true
 
-proc prevPermutation*[T](x: var openArray[T]): bool {.discardable.} =
+func prevPermutation*[T](x: var openArray[T]): bool {.discardable.} =
   ## Calculates the previous lexicographic permutation, directly modifying
   ## ``x``. The result is whether a permutation happened, otherwise we have
   ## reached the first-ordered permutation.
   ##
   ## **See also:**
-  ## * `nextPermutation proc<#nextPermutation,openArray[T]>`_
+  ## * `nextPermutation func<#nextPermutation,openArray[T]>`_
   runnableExamples:
     var v = @[0, 1, 2, 3]
     assert v.prevPermutation() == false
@@ -663,7 +663,7 @@ proc prevPermutation*[T](x: var openArray[T]): bool {.discardable.} =
 
   result = true
 
-proc rotateInternal[T](arg: var openArray[T]; first, middle, last: int): int =
+func rotateInternal[T](arg: var openArray[T]; first, middle, last: int): int =
   ## A port of std::rotate from c++. Ported from `this reference <http://www.cplusplus.com/reference/algorithm/rotate/>`_.
   result = first + last - middle
 
@@ -702,7 +702,7 @@ proc rotateInternal[T](arg: var openArray[T]; first, middle, last: int): int =
     elif next == last:
       next = mMiddle
 
-proc rotatedInternal[T](arg: openArray[T]; first, middle, last: int): seq[T] =
+func rotatedInternal[T](arg: openArray[T]; first, middle, last: int): seq[T] =
   result = newSeq[T](arg.len)
   for i in 0 ..< first:
     result[i] = arg[i]
@@ -715,7 +715,7 @@ proc rotatedInternal[T](arg: openArray[T]; first, middle, last: int): seq[T] =
   for i in last ..< arg.len:
     result[i] = arg[i]
 
-proc rotateLeft*[T](arg: var openArray[T]; slice: HSlice[int, int];
+func rotateLeft*[T](arg: var openArray[T]; slice: HSlice[int, int];
     dist: int): int {.discardable.} =
   ## Performs a left rotation on a range of elements. If you want to rotate
   ## right, use a negative ``dist``. Specifically, ``rotateLeft`` rotates
@@ -738,8 +738,8 @@ proc rotateLeft*[T](arg: var openArray[T]; slice: HSlice[int, int];
   ##   Can be negative, can be any number.
   ##
   ## **See also:**
-  ## * `rotateLeft proc<#rotateLeft,openArray[T],int>`_ for a version which rotates the whole container
-  ## * `rotatedLeft proc<#rotatedLeft,openArray[T],HSlice[int,int],int>`_ for a version which returns a ``seq[T]``
+  ## * `rotateLeft func<#rotateLeft,openArray[T],int>`_ for a version which rotates the whole container
+  ## * `rotatedLeft func<#rotatedLeft,openArray[T],HSlice[int,int],int>`_ for a version which returns a ``seq[T]``
   runnableExamples:
     var a = [0, 1, 2, 3, 4, 5]
     a.rotateLeft(1 .. 4, 3)
@@ -753,13 +753,13 @@ proc rotateLeft*[T](arg: var openArray[T]; slice: HSlice[int, int];
   let distLeft = ((dist mod sliceLen) + sliceLen) mod sliceLen
   arg.rotateInternal(slice.a, slice.a+distLeft, slice.b + 1)
 
-proc rotateLeft*[T](arg: var openArray[T]; dist: int): int {.discardable.} =
-  ## Default arguments for slice, so that this procedure operates on the entire
+func rotateLeft*[T](arg: var openArray[T]; dist: int): int {.discardable.} =
+  ## Default arguments for slice, so that this func operates on the entire
   ## ``arg``, and not just on a part of it.
   ##
   ## **See also:**
-  ## * `rotateLeft proc<#rotateLeft,openArray[T],HSlice[int,int],int>`_ for a version which rotates a range
-  ## * `rotatedLeft proc<#rotatedLeft,openArray[T],int>`_ for a version which returns a ``seq[T]``
+  ## * `rotateLeft func<#rotateLeft,openArray[T],HSlice[int,int],int>`_ for a version which rotates a range
+  ## * `rotatedLeft func<#rotatedLeft,openArray[T],int>`_ for a version which returns a ``seq[T]``
   runnableExamples:
     var a = [1, 2, 3, 4, 5]
     a.rotateLeft(2)
@@ -772,7 +772,7 @@ proc rotateLeft*[T](arg: var openArray[T]; dist: int): int {.discardable.} =
   let distLeft = ((dist mod arglen) + arglen) mod arglen
   arg.rotateInternal(0, distLeft, arglen)
 
-proc rotatedLeft*[T](arg: openArray[T]; slice: HSlice[int, int],
+func rotatedLeft*[T](arg: openArray[T]; slice: HSlice[int, int],
     dist: int): seq[T] =
   ## Same as ``rotateLeft``, just with the difference that it does
   ## not modify the argument. It creates a new ``seq`` instead.
@@ -788,8 +788,8 @@ proc rotatedLeft*[T](arg: openArray[T]; slice: HSlice[int, int],
   ##   Can be negative, can be any number.
   ##
   ## **See also:**
-  ## * `rotateLeft proc<#rotateLeft,openArray[T],HSlice[int,int],int>`_ for the in-place version of this proc
-  ## * `rotatedLeft proc<#rotatedLeft,openArray[T],int>`_ for a version which rotates the whole container
+  ## * `rotateLeft func<#rotateLeft,openArray[T],HSlice[int,int],int>`_ for the in-place version of this func
+  ## * `rotatedLeft func<#rotatedLeft,openArray[T],int>`_ for a version which rotates the whole container
   runnableExamples:
     var a = @[1, 2, 3, 4, 5]
     a = rotatedLeft(a, 1 .. 4, 3)
@@ -802,13 +802,13 @@ proc rotatedLeft*[T](arg: openArray[T]; slice: HSlice[int, int],
   let distLeft = ((dist mod sliceLen) + sliceLen) mod sliceLen
   arg.rotatedInternal(slice.a, slice.a+distLeft, slice.b+1)
 
-proc rotatedLeft*[T](arg: openArray[T]; dist: int): seq[T] =
+func rotatedLeft*[T](arg: openArray[T]; dist: int): seq[T] =
   ## Same as ``rotateLeft``, just with the difference that it does
   ## not modify the argument. It creates a new ``seq`` instead.
   ##
   ## **See also:**
-  ## * `rotateLeft proc<#rotateLeft,openArray[T],int>`_ for the in-place version of this proc
-  ## * `rotatedLeft proc<#rotatedLeft,openArray[T],HSlice[int,int],int>`_ for a version which rotates a range
+  ## * `rotateLeft func<#rotateLeft,openArray[T],int>`_ for the in-place version of this func
+  ## * `rotatedLeft func<#rotatedLeft,openArray[T],HSlice[int,int],int>`_ for a version which rotates a range
   runnableExamples:
     var a = @[1, 2, 3, 4, 5]
     a = rotatedLeft(a, 2)
