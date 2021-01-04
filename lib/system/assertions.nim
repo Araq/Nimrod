@@ -1,6 +1,4 @@
-when not declared(sysFatal):
-  include "system/fatal"
-
+from std/private/fatal import sysFatal
 import std/private/miscdollars
 # ---------------------------------------------------------------------------
 # helpers

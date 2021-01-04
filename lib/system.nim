@@ -1787,8 +1787,7 @@ when not defined(nimscript):
     ## for debug builds. Since it's usually used for debugging, this
     ## is proclaimed to have no IO effect!
 
-when not declared(sysFatal):
-  include "system/fatal"
+import std/private/fatal
 
 when not defined(nimscript):
   {.push stackTrace: off, profiler: off.}
