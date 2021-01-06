@@ -27,6 +27,13 @@ from lineinfos import
   warnGcMem, errXMustBeCompileTime, hintDependency, errGenerated, errCannotOpenFile
 import dynlib
 
+when true: # exectrace
+  const nimExecTraceDefine = "nimExecTraceDefine"
+  const nimExecTraceEnter = "nimExecTraceEnter"
+  const nimExecTraceExit = "nimExecTraceExit"
+  const nimExecTraceLineDefine = "nimExecTraceLineDefine"
+  const nimExecTraceLine = "nimExecTraceLine"
+
 when not declared(dynlib.libCandidates):
   proc libCandidates(s: string, dest: var seq[string]) =
     ## given a library name pattern `s` write possible library names to `dest`.
@@ -264,11 +271,14 @@ proc genLineDir(p: BProc, t: PNode) =
   if optEmbedOrigSrc in p.config.globalOptions:
     p.s(cpsStmts).add(~"//" & sourceLine(p.config, t.info) & "\L")
   genCLineDir(p.s(cpsStmts), toFullPath(p.config, t.info), line, p.config)
-  if ({optLineTrace, optStackTrace} * p.options == {optLineTrace, optStackTrace}) and
-      (p.prc == nil or sfPure notin p.prc.flags) and t.info.fileIndex != InvalidFileIdx:
-    if freshLineInfo(p, t.info):
-      linefmt(p, cpsStmts, "nimln_($1, $2);$n",
-              [line, quotedFilename(p.config, t.info)])
+
+  template isTrace(opt): bool =
+    ({opt, optLineTrace} * p.options == {opt, optLineTrace}) and
+      (p.prc == nil or sfPure notin p.prc.flags) and t.info.fileIndex != InvalidFileIdx
+  if isTrace(optStackTrace) and freshLineInfo(p, t.info):
+    linefmt(p, cpsStmts, "nimln_($1, $2);$n", [line, quotedFilename(p.config, t.info)])
+  if isTrace(optExecTrace) and freshLineInfo(p, t.info):
+    linefmt(p, cpsStmts, "$3($1, $2);$n", [line, quotedFilename(p.config, t.info), nimExecTraceLineDefine])
 
 proc postStmtActions(p: BProc) {.inline.} =
   p.s(cpsStmts).add(p.module.injectStmt)
@@ -646,11 +656,35 @@ proc initFrame(p: BProc, procname, filename: Rope): Rope =
   $1  define nimln_(n, file) \
       FR_.line = n; FR_.filename = file;
   """
+  # TODO: does `nimln_` really need to reset filename? or does my stacktrace speedup PR make this irrelevant anyway ?
   if p.module.s[cfsFrameDefines].len == 0:
     appcg(p.module, p.module.s[cfsFrameDefines], frameDefines, ["#"])
 
   discard cgsym(p.module, "nimFrame")
   result = ropecg(p.module, "\tnimfr_($1, $2);$n", [procname, filename])
+
+when true:
+  proc initExecTrace(p: BProc, procname, filename: Rope, line: int = 0): Rope =
+    const frameDefines = """
+    #define $1(proc, file, line2) \
+        TFrame FR2_; \
+        FR2_.procname = proc; FR2_.filename = file; FR2_.line = line2; FR2_.len = 0; \
+        $2(&FR2_);
+
+    #define $3(n, file) \
+      FR2_.line = n; FR2_.filename = file; \
+      $4(&FR2_, n); // PRTEMP
+    """.format [nimExecTraceDefine, nimExecTraceEnter, nimExecTraceLineDefine, nimExecTraceLine]
+    if p.module.s[cfsExecTraceDefines].len == 0:
+      p.module.s[cfsExecTraceDefines].add frameDefines
+    discard cgsym(p.module, nimExecTraceEnter)
+    discard cgsym(p.module, nimExecTraceExit)
+    discard cgsym(p.module, nimExecTraceLine)
+    # let line = 0
+    result = ropecg(p.module, "\t$1($2, $3, $4);$n", [nimExecTraceDefine, procname, filename, line.`$`.rope])
+
+  proc deinitExecTrace(p: BProc): Rope =
+    result = ropecg(p.module, "\t#$1();$n", [nimExecTraceExit])
 
 proc initFrameNoDebug(p: BProc; frame, procname, filename: Rope; line: int): Rope =
   discard cgsym(p.module, "nimFrame")
@@ -1073,6 +1107,9 @@ proc genProcAux(m: BModule, prc: PSym) =
       generatedProc.add(initFrame(p, procname, quotedFilename(p.config, prc.info)))
     else:
       generatedProc.add(p.s(cpsLocals))
+    if optExecTrace in prc.options:
+      var procname = makeCString(prc.name.s)
+      generatedProc.add(initExecTrace(p, procname, quotedFilename(p.config, prc.info), prc.info.line.int))
     if optProfiler in prc.options:
       # invoke at proc entry for recursion:
       appcg(p, cpsInit, "\t#nimProfile();$n", [])
@@ -1082,6 +1119,7 @@ proc genProcAux(m: BModule, prc: PSym) =
     generatedProc.add(p.s(cpsInit))
     generatedProc.add(p.s(cpsStmts))
     if beforeRetNeeded in p.flags: generatedProc.add(~"\t}BeforeRet_: ;$n")
+    if optExecTrace in prc.options: generatedProc.add(deinitExecTrace(p))
     if optStackTrace in prc.options: generatedProc.add(deinitFrame(p))
     generatedProc.add(returnStmt)
     generatedProc.add(~"}$N")
@@ -1707,6 +1745,12 @@ proc genInitCode(m: BModule) =
       else:
         prc.add(~"\tTFrame FR_; FR_.len = 0;$N")
 
+    # PRTEMP FACTOR
+    if optExecTrace in m.initProc.options and frameDeclared2 notin m.flags:
+      incl m.flags, frameDeclared2
+      var procname = makeCString(m.module.name.s)
+      prc.add(initExecTrace(m.initProc, procname, quotedFilename(m.config, m.module.info)))
+
     writeSection(initProc, cpsInit, m.hcrOn)
     writeSection(initProc, cpsStmts)
 
@@ -1773,12 +1817,17 @@ proc genModule(m: BModule, cfile: Cfile): Rope =
   if m.config.cppCustomNamespace.len > 0:
     result.add openNamespaceNim(m.config.cppCustomNamespace)
   result.add(genSectionEnd(cfsHeaders, m.config))
-  result.add(genSectionStart(cfsFrameDefines, m.config))
-  if m.s[cfsFrameDefines].len > 0:
-    result.add(m.s[cfsFrameDefines])
-  else:
-    result.add("#define nimfr_(x, y)\n#define nimln_(x, y)\n")
-  result.add(genSectionEnd(cfsFrameDefines, m.config))
+
+  template gensec(cfs, body) =
+    result.add(genSectionStart(cfs, m.config))
+    if m.s[cfs].len > 0:
+      result.add(m.s[cfs])
+    else:
+      body
+    result.add(genSectionEnd(cfs, m.config))
+  gensec(cfsFrameDefines):
+    result.add("#define nimfr_(x, y)\n#define nimln_(x, y)\n") # CHECKME: needed?
+  gensec(cfsExecTraceDefines): discard
 
   for i in cfsForwardTypes..cfsProcs:
     if m.s[i].len > 0:

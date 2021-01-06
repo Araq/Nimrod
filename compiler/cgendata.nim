@@ -19,6 +19,7 @@ type
     cfsMergeInfo,             # section containing merge information
     cfsHeaders,               # section for C include file headers
     cfsFrameDefines           # section for nim frame macros
+    cfsExecTraceDefines       # section for execTrace macros
     cfsForwardTypes,          # section for C forward typedefs
     cfsTypes,                 # section for C typedefs
     cfsSeqTypes,              # section for sequence types only
@@ -109,6 +110,7 @@ type
     usesThreadVars,     # true if the module uses a thread var
     frameDeclared,      # hack for ROD support so that we don't declare
                         # a frame var twice in an init proc
+    frameDeclared2,     # ditto for exectrace
     isHeaderFile,       # C source file is the header file
     includesStringh,    # C source file already includes ``<string.h>``
     objHasKidsValid     # whether we can rely on tfObjHasKids

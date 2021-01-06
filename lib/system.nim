@@ -1886,6 +1886,7 @@ include "system/gc_interface"
 
 # we have to compute this here before turning it off in except.nim anyway ...
 const NimStackTrace = compileOption("stacktrace")
+const NimExecTrace = when defined(nimHasExecTrace): compileOption("exectrace") else: false
 
 template coroutinesSupportedPlatform(): bool =
   when defined(sparc) or defined(ELATE) or compileOption("gc", "v2") or
@@ -2430,6 +2431,14 @@ when defined(js) or defined(nimscript):
 
   proc addFloat*(result: var string; x: float) =
     result.add $x
+
+when notJSnotNims and NimExecTrace:
+  # move somewhere?
+  # {.compilerRtl, inl, raises: [], importc.}
+  proc nimExecTraceEnter(s: PFrame) {.compilerproc, importc.}
+  proc nimExecTraceExit {.compilerproc, importc.}
+  # TODO: allow enable/disable
+  proc nimExecTraceLine(s: PFrame, line: int16) {.compilerproc, importc.}
 
 proc quit*(errormsg: string, errorcode = QuitFailure) {.noreturn.} =
   ## A shorthand for ``echo(errormsg); quit(errorcode)``.
