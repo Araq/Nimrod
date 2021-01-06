@@ -92,6 +92,8 @@
 - `math.round` now is rounded "away from zero" in JS backend which is consistent
 with other backends. see #9125. Use `-d:nimLegacyJsRound` for previous behavior.
 
+- Added `osproc.execArgs`
+
 
 ## Language changes
 
