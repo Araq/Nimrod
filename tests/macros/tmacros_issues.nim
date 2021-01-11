@@ -21,6 +21,16 @@ false
 true
 @[i0, i1, i2, i3, i4]
 @[tmp, tmp, tmp, tmp, tmp]
+compTime
+compTime
+now method:
+compTime
+compTime
+compTime
+now method command:
+compTime
+compTime
+compTime
 '''
 
   output: '''
@@ -41,6 +51,12 @@ false
 true
 false
 1.0
+0
+1
+3
+4
+6
+7
 '''
 """
 
@@ -499,3 +515,19 @@ block double_sem_for_procs:
     result = 10.0
 
   discard exp(5.0)
+
+# bug #14844
+var c {.compileTime.} = 0
+macro echoes: untyped =
+  echo "compTime"
+  result = newLit c
+  inc c
+
+template doubleEval(n): untyped =
+  echo n; echo n;
+
+doubleEval(echoes)
+static: echo "now method:"
+(echoes).doubleEval()
+static: echo "now method command:"
+(echoes).doubleEval

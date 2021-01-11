@@ -600,6 +600,20 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     elif efNoUndeclared notin flags:
       notFoundError(c, n, errors)
 
+proc semOverloadedCallHandleEarlySym(c: PContext, n, nOrig: PNode,
+                       filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+  var argsWrappedInPotentialEarlySem = newSeq[PNode](n.len)
+  for i in 1..<n.len:
+    if  n[i] != nil and n[i].kind == nkEarlySemArg:
+      argsWrappedInPotentialEarlySem[i] = n[i]
+      n[i] = n[i][0]
+  result = semOverloadedCall(c, n, nOrig, filter, flags)
+  for i in 1..<argsWrappedInPotentialEarlySem.len:
+    if argsWrappedInPotentialEarlySem[i] != nil:
+      argsWrappedInPotentialEarlySem[i][0] = result[i]
+      n[i] = argsWrappedInPotentialEarlySem[i]
+      result[i] = n[i]
+
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
   localError(c.config, getCallLineInfo(n), errCannotInstantiateX % renderTree(n))
   result = n

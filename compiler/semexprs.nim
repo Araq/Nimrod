@@ -48,6 +48,7 @@ template rejectEmptyNode(n: PNode) =
   if n.kind == nkEmpty: illFormedAst(n, c.config)
 
 proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+  let n = if n.kind == nkEarlySemArg: n[0] else: n
   rejectEmptyNode(n)
   # same as 'semExprWithType' but doesn't check for proc vars
   result = semExpr(c, n, flags + {efOperand})
@@ -74,6 +75,7 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result = errorNode(c, n)
 
 proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+  let n = if n.kind == nkEarlySemArg: n[0] else: n
   result = semExprCheck(c, n, flags)
   if result.typ == nil or result.typ == c.enforceVoidContext:
     localError(c.config, n.info, errExprXHasNoType %
@@ -843,10 +845,10 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
     # for typeof support.
     # for ``type(countup(1,3))``, see ``tests/ttoseq``.
-    result = semOverloadedCall(c, n, nOrig,
+    result = semOverloadedCallHandleEarlySym(c, n, nOrig,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate, skIterator}, flags)
   else:
-    result = semOverloadedCall(c, n, nOrig,
+    result = semOverloadedCallHandleEarlySym(c, n, nOrig,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
   if result != nil:
@@ -855,8 +857,23 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
       return
     let callee = result[0].sym
     case callee.kind
-    of skMacro, skTemplate: discard
+    of skMacro, skTemplate:
+      let typ = callee.typ.n
+      if result.len > 1 and result[1].kind == nkEarlySemArg and typ.len > 1 and typ[1].typ != nil and typ[1].typ.kind == tyUntyped:
+        #First argument is early gensymmed because of the method call syntax
+        assert n[1] == result[1]
+        result[1] = result[1][1]
+        n[1] = result[1]
+        echo "Warning, semmed twice" #TODO: Warn properly
+      elif result.len > 1 and result[1].kind == nkEarlySemArg:
+        assert n[1] == result[1]
+        result[1] = result[1][0]
+        n[1] = result[1]
     else:
+      if result.len > 1 and result[1].kind == nkEarlySemArg:
+        assert n[1] == result[1]
+        result[1] = result[1][0]
+        n[1] = result[1]
       if callee.kind == skIterator and callee.id == c.p.owner.id:
         localError(c.config, n.info, errRecursiveDependencyIteratorX % callee.name.s)
         # error correction, prevents endless for loop elimination in transf.
@@ -1429,9 +1446,12 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
 proc semFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # this is difficult, because the '.' is used in many different contexts
   # in Nim. We first allow types in the semantic checking.
+  let unsemmedN0 = copyTree n[0]
   result = builtinFieldAccess(c, n, flags)
   if result == nil:
     result = dotTransformation(c, n)
+  if result.kind == nkDotCall:
+    result[1] = newTreeI(nkEarlySemArg, result[1].info, result[1], unsemmedN0)
 
 proc buildOverloadedSubscripts(n: PNode, ident: PIdent): PNode =
   result = newNodeI(nkCall, n.info)
@@ -2192,6 +2212,7 @@ proc semSizeof(c: PContext, n: PNode): PNode =
 proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   # this is a hotspot in the compiler!
   result = n
+  if result.len > 1 and result[1].kind == nkEarlySemArg: result[1] = result[1][0]
   case s.magic # magics that need special treatment
   of mAddr:
     markUsed(c, n.info, s)
@@ -2710,6 +2731,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkCharLit:
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyChar)
   of nkDotExpr:
+    #TODO: Do we need to use shadowscopes here?
     result = semFieldAccess(c, n, flags)
     if result.kind == nkDotCall:
       result.transitionSonsKind(nkCall)
