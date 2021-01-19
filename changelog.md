@@ -135,6 +135,10 @@ with other backends. see #9125. Use `-d:nimLegacyJsRound` for previous behavior.
 - Type mismatch errors now show more context, use `-d:nimLegacyTypeMismatch` for previous
   behavior.
 
+- `cast` now works in VM in more contexts, behaving like in RT; eg: `int <=> ptr T | ref T`,
+  see `tcastint.testCastRefOrPtr`
+- `cast` now works in VM in more contexts, behaving the same as in runtime, in particular
+  `cast[int](x)` now works for `x: ptr T | ref T`, and likewise for reverse direction.
 
 ## Tool changes
 

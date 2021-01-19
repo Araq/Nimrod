@@ -1,7 +1,3 @@
-discard """
-  output: "OK"
-"""
-
 import macros
 
 type
@@ -292,16 +288,47 @@ proc test_float32_castB() =
   # any surprising content.
   doAssert cast[uint64](c) == 3270918144'u64
 
-test()
-test_float_cast()
-test_float32_cast()
-free_integer_casting()
-test_float32_castB()
-static:
+proc testCastRefOrPtr() =
+  type TFoo = object
+    f0: string
+  template fnAux(Lhs) =
+    block:
+      template fn(Foo, a) =
+        let pa = cast[Lhs](a)
+        var a2 = cast[Foo](pa)
+        let pa2 = cast[Lhs](pa)
+        doAssert a2[] == a[]
+        doAssert a2.f0 == a.f0
+        doAssert pa2 == pa
+
+        a2.f0 = "abc2"
+        doAssert a.f0 == "abc2"
+        let b = TFoo(f0: "abc3")
+        a2[] = b
+        doAssert a2.f0 == "abc3"
+        doAssert a2[] == b
+
+      block: # ref <=> Lhs
+        type Foo = ref TFoo
+        var a = Foo(f0: "abc")
+        fn(Foo, a)
+
+      block: # ptr <=> Lhs
+        type Foo = ptr TFoo
+        var a0 = TFoo(f0: "abc")
+        let a = a0.addr
+        fn(Foo, a)
+
+  fnAux(int)
+  fnAux(pointer)
+
+template main =
   test()
   test_float_cast()
   test_float32_cast()
   free_integer_casting()
   test_float32_castB()
+  testCastRefOrPtr()
 
-echo "OK"
+static: main()
+main()

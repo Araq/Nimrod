@@ -116,7 +116,7 @@ template decodeBx(k: untyped) {.dirty.} =
 template move(a, b: untyped) {.dirty.} = system.shallowCopy(a, b)
 # XXX fix minor 'shallowCopy' overloading bug in compiler
 
-proc derefPtrToReg(address: BiggestInt, typ: PType, r: var TFullReg, isAssign: bool): bool =
+proc derefPtrToReg(c: PCtx, tos: PStackFrame, pc: int, address: BiggestInt, typ: PType, r: var TFullReg, isAssign: bool): bool =
   # nim bug: `isAssign: static bool` doesn't work, giving odd compiler error
   template fun(field, T, rkind) =
     if isAssign:
@@ -146,7 +146,19 @@ proc derefPtrToReg(address: BiggestInt, typ: PType, r: var TFullReg, isAssign: b
   of tyFloat: fun(floatVal, float, rkFloat)
   of tyFloat32: fun(floatVal, float32, rkFloat)
   of tyFloat64: fun(floatVal, float64, rkFloat)
-  else: return false
+  of tyObject:
+    if isAssign:
+      let lhs = cast[PNode](address)
+      let rhs = r.node
+      if lhs.len != rhs.len: internalError(c.config, c.debug[pc], "derefPtrToReg failed")
+      for i in 0..<lhs.len:
+        lhs[i] = copyTree(rhs[i])
+    else:
+      r.ensureKind(rkNode)
+      r.node = cast[PNode](address)
+    return true
+  else:
+    return false
 
 proc createStrKeepNode(x: var TFullReg; keepNode=true) =
   if x.node.isNil or not keepNode:
@@ -499,8 +511,7 @@ const
     "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
   errFieldXNotFound = "node lacks field: "
 
-
-template maybeHandlePtr(node2: PNode, reg: TFullReg, isAssign2: bool): bool =
+template maybeHandlePtr(c: PCtx, tos: PStackFrame, pc: int, node2: PNode, reg: TFullReg, isAssign2: bool): bool =
   let node = node2 # prevent double evaluation
   if node.kind == nkNilLit:
     stackTrace(c, tos, pc, errNilAccess)
@@ -509,10 +520,10 @@ template maybeHandlePtr(node2: PNode, reg: TFullReg, isAssign2: bool): bool =
     assert node.kind == nkIntLit, $(node.kind)
     assert typ != nil
     let typ2 = if typ.kind == tyPtr: typ[0] else: typ
-    if not derefPtrToReg(node.intVal, typ2, reg, isAssign = isAssign2):
-      # tyObject not supported in this context
+    if derefPtrToReg(c, tos, pc, node.intVal, typ2, reg, isAssign = isAssign2): true
+    else:
       stackTrace(c, tos, pc, "deref unsupported ptr type: " & $(typeToString(typ), typ.kind))
-    true
+      false
   else:
     false
 
@@ -597,9 +608,18 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of 1: # PtrLikeKinds
         case regs[rb].kind
         of rkNode:
-          regs[ra].intVal = cast[int](regs[rb].node.intVal)
+          case regs[rb].node.kind
+          of nkObjConstr:
+            regs[ra].intVal = cast[int](regs[rb].node)
+          of nkIntLit:
+            regs[ra].intVal = cast[int](regs[rb].node.intVal)
+          else:
+            stackTrace(c, tos, pc, "opcCastPtrToInt: " & $regs[rb].node.kind)
         of rkNodeAddr:
           regs[ra].intVal = cast[int](regs[rb].nodeAddr)
+        of rkInt:
+          # could be tightened by checking type, eg `tyPointer`
+          regs[ra].intVal = regs[rb].intVal
         else:
           stackTrace(c, tos, pc, "opcCastPtrToInt: got " & $regs[rb].kind)
       of 2: # tyRef
@@ -608,15 +628,22 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcCastIntToPtr:
       let rb = instr.regB
       let typ = regs[ra].node.typ
-      let node2 = newNodeIT(nkIntLit, c.debug[pc], typ)
-      case regs[rb].kind
-      of rkInt: node2.intVal = regs[rb].intVal
-      of rkNode:
-        if regs[rb].node.typ.kind notin PtrLikeKinds:
-          stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].node.typ: " & $regs[rb].node.typ.kind)
-        node2.intVal = regs[rb].node.intVal
-      else: stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind)
-      regs[ra].node = node2
+      if typ.kind == tyRef:
+        template fn(val) = regs[ra].node = cast[PNode](val.intVal)
+        case regs[rb].kind
+        of rkInt: fn(regs[rb])
+        of rkNode: fn(regs[rb].node)
+        else: stackTrace(c, tos, pc, "regs[rb].kind: " & $regs[rb].kind)
+      else:
+        let node2 = newNodeIT(nkIntLit, c.debug[pc], typ)
+        case regs[rb].kind
+        of rkInt: node2.intVal = regs[rb].intVal
+        of rkNode:
+          if regs[rb].node.typ.kind notin PtrLikeKinds:
+            stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].node.typ: " & $regs[rb].node.typ.kind)
+          node2.intVal = regs[rb].node.intVal
+        else: stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind)
+        regs[ra].node = node2
     of opcAsgnComplex:
       asgnComplex(regs[ra], regs[instr.regB])
     of opcFastAsgnComplex:
@@ -717,7 +744,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       case src.kind
       of nkEmpty..nkNilLit:
         # for nkPtrLit, this could be supported in the future, use something like:
-        # derefPtrToReg(src.intVal + offsetof(src.typ, rc), typ_field, regs[ra], isAssign = false)
+        # derefPtrToReg(c, tos, pc, src.intVal + offsetof(src.typ, rc), typ_field, regs[ra], isAssign = false)
         # where we compute the offset in bytes for field rc
         stackTrace(c, tos, pc, errNilAccess & " " & $("kind", src.kind, "typ", typeToString(src.typ), "rc", rc))
       of nkObjConstr:
@@ -786,8 +813,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of rkNode:
         if regs[rb].node.kind == nkRefTy:
           regs[ra].node = regs[rb].node[0]
-        elif not maybeHandlePtr(regs[rb].node, regs[ra], false):
-          ## e.g.: typ.kind = tyObject
+        elif not maybeHandlePtr(c, tos, pc, regs[rb].node, regs[ra], false):
+          # e.g.: typ.kind = tyObject
           ensureKind(rkNode)
           regs[ra].node = regs[rb].node
       else:
@@ -811,7 +838,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of rkRegisterAddr: regs[ra].regAddr[] = regs[rc]
       of rkNode:
          # xxx: also check for nkRefTy as in opcLdDeref?
-        if not maybeHandlePtr(regs[ra].node, regs[rc], true):
+        if not maybeHandlePtr(c, tos, pc, regs[ra].node, regs[rc], true):
           regs[ra].node[] = regs[rc].regToNode[]
           regs[ra].node.flags.incl nfIsRef
       else: stackTrace(c, tos, pc, errNilAccess)
@@ -1016,6 +1043,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           ret = ptrEquality(regs[rb].nodeAddr, regs[rc].node)
       elif regs[rc].kind == rkNodeAddr:
         ret = ptrEquality(regs[rc].nodeAddr, regs[rb].node)
+      elif regs[rc].kind == rkInt and regs[rb].kind == rkInt:
+        ret = regs[rb].intVal == regs[rc].intVal
       else:
         let nb = regs[rb].node
         let nc = regs[rc].node
@@ -1437,7 +1466,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         node2.intVal = cast[ptr int](node.intVal)[]
         node2.flags.incl nfIsPtr
         regs[ra].node = node2
-      elif not derefPtrToReg(node.intVal, typ, regs[ra], isAssign = false):
+      elif not derefPtrToReg(c, tos, pc, node.intVal, typ, regs[ra], isAssign = false):
         stackTrace(c, tos, pc, "opcLdDeref unsupported type: " & $(typeToString(typ), typ[0].kind))
     of opcLdGlobalAddrDerefFFI:
       let rb = instr.regBx - wordExcess - 1
