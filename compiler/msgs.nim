@@ -153,9 +153,6 @@ proc suggestWriteln*(conf: ConfigRef; s: string) =
     else:
       conf.writelnHook(s)
 
-proc msgQuit*(x: int8) = quit x
-proc msgQuit*(x: string) = quit x
-
 proc suggestQuit*() =
   raise newException(ESuggestDone, "suggest done")
 
@@ -324,6 +321,13 @@ proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       when defined(windows):
         flushFile(stderr)
 
+proc msgQuit*(conf: ConfigRef, x: int8) =
+  if x!=0 and conf.isDefined("nimEchoNimQuittingError"):
+    # this is used in tests to ensure nim quits gracefully instead of via some
+    # signal (e.g. SIGSEGV) or other error.
+    msgWriteln(conf, "NimQuittingError")
+  quit x
+
 macro callIgnoringStyle(theProc: typed, first: typed,
                         args: varargs[typed]): untyped =
   let typForegroundColor = bindSym"ForegroundColor".getType
@@ -406,6 +410,8 @@ proc quit(conf: ConfigRef; msg: TMsgKind) {.gcsafe.} =
 No stack traceback available
 To create a stacktrace, rerun compilation with './koch temp $1 <file>', see $2 for details""" %
           [conf.command, "intern.html#debugging-the-compiler".createDocLink])
+  # we could call something similar to `nimEchoNimQuittingError` here; maybe a different
+  # message to allow tests to distinguish
   quit 1
 
 proc handleError(conf: ConfigRef; msg: TMsgKind, eh: TErrorHandling, s: string) =
