@@ -166,15 +166,28 @@
 ##
 ## * The effect system (``raises: []``) does not work with async procedures.
 
-import os, tables, strutils, times, heapqueue, options, asyncstreams
-import options, math, std/monotimes
+include "system/inclrtl"
+
+import os, tables, strutils, times, heapqueue, lists, options, asyncstreams
+import options, math, std/monotimes, hashes
+
 import asyncfutures except callSoon
 
 import nativesockets, net, deques
 
+when compileOption("threads"):
+  import rlocks
+
 export Port, SocketFlag
 export asyncfutures except callSoon
 export asyncstreams
+
+template withLockIfThreads(lock, code: untyped) =
+  when compileOption("threads"):
+    withRLock lock:
+      code
+  else:
+    code
 
 #{.injectStmt: newGcInvariant().}
 
@@ -239,7 +252,7 @@ template implementSetInheritable() {.dirty.} =
       fd.FileHandle.setInheritable(inheritable)
 
 when defined(windows) or defined(nimdoc):
-  import winlean, sets, hashes
+  import winlean, sets
   type
     CompletionKey = ULONG_PTR
 
@@ -254,6 +267,13 @@ when defined(windows) or defined(nimdoc):
     PDispatcher* = ref object of PDispatcherBase
       ioPort: Handle
       handles*: HashSet[AsyncFD] # Export handles so that an external library can register them.
+      vd: VirtualEventDispatcher
+
+    VirtualEventDispatcher = object
+      virtualHandles: Table[VirtualFD, AsyncEvent] # pseudo handles for custom AsyncEvents.
+      nextVirtualHandle: VirtualFD
+      virtualMuxHandle: Handle     # all the virtual handles get multiplexed through a single real handle.
+      virtualPCD: PostCallbackDataPtr # needed for the selector callback plumbing.
 
     CustomObj = object of OVERLAPPED
       data*: CompletionData
@@ -261,6 +281,7 @@ when defined(windows) or defined(nimdoc):
     CustomRef* = ref CustomObj
 
     AsyncFD* = distinct int
+    VirtualFD* = distinct int
 
     PostCallbackData = object
       ioPort: Handle
@@ -270,23 +291,120 @@ when defined(windows) or defined(nimdoc):
     PostCallbackDataPtr = ptr PostCallbackData
 
     AsyncEventImpl = object
-      hEvent: Handle
-      hWaiter: Handle
-      pcd: PostCallbackDataPtr
+      triggered: bool
+      when compileOption("threads"):
+        eventLock: RLock
+      p: PDispatcher
+      vFD: VirtualFD
+      cb: Callback
     AsyncEvent* = ptr AsyncEventImpl
 
-    Callback* = proc (fd: AsyncFD): bool {.closure, gcsafe.}
+    Callback* = proc (fd: AsyncFD): bool {.closure,gcsafe.}
+    NativeCallback = proc(fd: AsyncFD, bytesCount: DWORD, errcode: OSErrorCode) {.closure,gcsafe.}
 
   proc hash(x: AsyncFD): Hash {.borrow.}
   proc `==`*(x: AsyncFD, y: AsyncFD): bool {.borrow.}
+  proc hash(x: VirtualFD): Hash {.borrow.}
+  proc `==`*(x: VirtualFD, y: VirtualFD): bool {.borrow.}
+
+  const InvalidVirtualFD = VirtualFD(-1)
+
+  {.push stackTrace:off.}
+  proc waitableCallback(param: pointer,
+                        timerOrWaitFired: WINBOOL): void {.stdcall.} =
+    var p = cast[PostCallbackDataPtr](param)
+    discard postQueuedCompletionStatus(p.ioPort, timerOrWaitFired.DWORD,
+                                       ULONG_PTR(p.handleFd),
+                                       cast[pointer](p.ovl))
+  {.pop.}
+
+  proc registerWaitableHandle(p: PDispatcher, hEvent: Handle, flags: DWORD, pcd: PostCallbackDataPtr, timeout: int,
+                                  handleCallback: NativeCallback) =
+    let handleFD = AsyncFD(hEvent)
+    pcd.ioPort = p.ioPort
+    pcd.handleFd = handleFD
+    var ol = PCustomOverlapped()
+    GC_ref(ol)
+    ol.data.fd = handleFD
+    ol.data.cb = handleCallback
+    # We need to protect our callback environment value, so GC will not free it
+    # accidentally.
+    ol.data.cell = system.protect(rawEnv(ol.data.cb))
+
+    pcd.ovl = ol
+    if not registerWaitForSingleObject(addr(pcd.waitFd), hEvent,
+                                    cast[WAITORTIMERCALLBACK](waitableCallback),
+                                    cast[pointer](pcd), timeout.DWORD, flags):
+      let err = osLastError()
+      GC_unref(ol)
+      deallocShared(cast[pointer](pcd))
+      discard closeHandle(hEvent)
+      raiseOSError(err)
+    p.handles.incl(handleFD)
+
+  proc unregister*(ev: AsyncEvent) =
+    ## Unregisters event ``ev``.
+    doAssert(ev.vFD != InvalidVirtualFD, "Event is not registered in the queue!")
+    withLockIfThreads ev.eventLock:
+      ev.p.vd.virtualHandles.del ev.vFD
+      ev.p = nil
+      ev.cb = nil
+      ev.vFD = InvalidVirtualFD
+
+  proc initVirtualEventDispatcher(p: PDispatcher) =
+    p.vd.virtualHandles = initTable[VirtualFD, AsyncEvent]()
+    # create and register the physical event handle for all the virtual handles.
+    var sa = SECURITY_ATTRIBUTES(
+      nLength: sizeof(SECURITY_ATTRIBUTES).cint,
+      bInheritHandle: 1
+    )
+    p.vd.virtualMuxHandle = createEvent(addr(sa), 0'i32, 0'i32, nil)
+    if p.vd.virtualMuxHandle == INVALID_HANDLE_VALUE:
+      raiseOSError(osLastError())
+
+    proc virtualMuxCB(fd: AsyncFD, bytesCount: DWORD, errcode: OSErrorCode) {.closure,gcsafe.} =
+      # find the virtual events that triggered the physical event and
+      # add them to the callback list.
+      # Not very efficient, but requires the least coordination between threads.
+      
+      proc vcbFactory(vfd: VirtualFD) : proc() {.closure, gcsafe.} =
+        let ev = p.vd.virtualHandles[vfd]
+        result = proc() {.closure,gcSafe.} =
+          if ev.cb(vfd.AsyncFD):
+            # the convention is that if the callback returns true, we unregister the event.
+            ev.unregister
+
+      for vfd, ev in p.vd.virtualHandles:
+        withLockIfThreads ev.eventLock:
+          if ev.triggered:
+            ev.triggered = false
+            p.callbacks.addLast(vcbFactory(vfd))
+
+      # this global callback always wants to be called again, so
+      # we need to ref and protect `pcd.ovl`, because it will be
+      # unrefed and disposed in `poll()`.
+      GC_ref(p.vd.virtualPCD.ovl)
+      p.vd.virtualPCD.ovl.data.cell = system.protect(rawEnv(p.vd.virtualPCD.ovl.data.cb))
+
+    p.vd.virtualPCD = cast[PostCallbackDataPtr](allocShared0(sizeof(PostCallbackData)))
+    # TODO: We need a destructor for pDispatcher, or the virtualPCD will leak.
+    # Probably fine for the global dispatcher since it lives for the whole application, but in principle we should clean up... 
+    # Same with closing the socket / file handle.
+    # How do we do this for GC'ed nim / pre-destuctors Nim?
+    # deallocShared(cast[pointer](result.virtualPCD))
+
+    var flags = WT_EXECUTEINWAITTHREAD.DWORD
+    registerWaitableHandle(p, p.vd.virtualMuxHandle, flags, p.vd.virtualPCD, INFINITE, virtualMuxCB)
 
   proc newDispatcher*(): owned PDispatcher =
     ## Creates a new Dispatcher instance.
     new result
     result.ioPort = createIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 1)
-    result.handles = initHashSet[AsyncFD]()
+    result.handles = initSet[AsyncFD]()
     result.timers.clear()
+    #result.timers.newHeapQueue()
     result.callbacks = initDeque[proc () {.closure, gcsafe.}](64)
+    initVirtualEventDispatcher(result)
 
   var gDisp{.threadvar.}: owned PDispatcher ## Global dispatcher
 
@@ -327,11 +445,12 @@ when defined(windows) or defined(nimdoc):
   proc hasPendingOperations*(): bool =
     ## Returns `true` if the global dispatcher has pending operations.
     let p = getGlobalDispatcher()
-    p.handles.len != 0 or p.timers.len != 0 or p.callbacks.len != 0
+    p.handles.len > 1 or p.vd.virtualHandles.len > 0 or p.timers.len != 0 or p.callbacks.len != 0
 
   proc runOnce(timeout = 500): bool =
     let p = getGlobalDispatcher()
-    if p.handles.len == 0 and p.timers.len == 0 and p.callbacks.len == 0:
+    # it's 1 b/c we always have the global AsyncEvent handle
+    if p.handles.len == 1 and p.vd.virtualHandles.len == 0 and p.timers.len == 0 and p.callbacks.len == 0:
       raise newException(ValueError,
         "No handles or timers registered in dispatcher.")
 
@@ -944,6 +1063,7 @@ when defined(windows) or defined(nimdoc):
     ## receiving notifications.
     registerWaitableEvent(fd, cb, FD_WRITE or FD_CONNECT or FD_CLOSE)
 
+
   template registerWaitableHandle(p, hEvent, flags, pcd, timeout,
                                   handleCallback) =
     let handleFD = AsyncFD(hEvent)
@@ -1037,69 +1157,43 @@ when defined(windows) or defined(nimdoc):
     ##
     ## New ``AsyncEvent`` object is not automatically registered with
     ## dispatcher like ``AsyncSocket``.
-    var sa = SECURITY_ATTRIBUTES(
-      nLength: sizeof(SECURITY_ATTRIBUTES).cint,
-      bInheritHandle: 1
-    )
-    var event = createEvent(addr(sa), 0'i32, 0'i32, nil)
-    if event == INVALID_HANDLE_VALUE:
-      raiseOSError(osLastError())
     result = cast[AsyncEvent](allocShared0(sizeof(AsyncEventImpl)))
-    result.hEvent = event
+    result.cb = nil
+    result.vFD = InvalidVirtualFD
+    when compileOption("threads"):
+      initRLock result.eventLock
 
   proc trigger*(ev: AsyncEvent) =
     ## Set event ``ev`` to signaled state.
-    if setEvent(ev.hEvent) == 0:
-      raiseOSError(osLastError())
+    withLockIfThreads ev.eventLock:
+      if ev.vFD == InvalidVirtualFD:
+        # triggering on an event that is not registered is a noop.
+        return
+      ev.triggered = true
 
-  proc unregister*(ev: AsyncEvent) =
-    ## Unregisters event ``ev``.
-    doAssert(ev.hWaiter != 0, "Event is not registered in the queue!")
-    let p = getGlobalDispatcher()
-    p.handles.excl(AsyncFD(ev.hEvent))
-    if unregisterWait(ev.hWaiter) == 0:
-      let err = osLastError()
-      if err.int32 != ERROR_IO_PENDING:
-        raiseOSError(err)
-    ev.hWaiter = 0
+    # send the signal to wake up the dispatcher thread.
+    if setEvent(ev.p.vd.virtualMuxHandle) == 0:
+      raiseOSError(osLastError())
 
   proc close*(ev: AsyncEvent) =
     ## Closes event ``ev``.
-    let res = closeHandle(ev.hEvent)
+    doAssert(ev.vFD != InvalidVirtualFD, "Must unregister Event before you close it!")
+    when compileOption("threads"):
+      deinitRLock(ev.eventLock)
     deallocShared(cast[pointer](ev))
-    if res == 0:
-      raiseOSError(osLastError())
 
   proc addEvent*(ev: AsyncEvent, cb: Callback) =
     ## Registers callback ``cb`` to be called when ``ev`` will be signaled
-    doAssert(ev.hWaiter == 0, "Event is already registered in the queue!")
+    doAssert(ev.vFD == InvalidVirtualFD, "Event is already registered in the queue!")
 
     let p = getGlobalDispatcher()
-    let hEvent = ev.hEvent
 
-    var pcd = cast[PostCallbackDataPtr](allocShared0(sizeof(PostCallbackData)))
-    var flags = WT_EXECUTEINWAITTHREAD.DWORD
-
-    proc eventcb(fd: AsyncFD, bytesCount: DWORD, errcode: OSErrorCode) =
-      if ev.hWaiter != 0:
-        if cb(fd):
-          # we need this check to avoid exception, if `unregister(event)` was
-          # called in callback.
-          deallocShared(cast[pointer](pcd))
-          if ev.hWaiter != 0:
-            unregister(ev)
-        else:
-          # if callback returned `false`, then it wants to be called again, so
-          # we need to ref and protect `pcd.ovl` again, because it will be
-          # unrefed and disposed in `poll()`.
-          GC_ref(pcd.ovl)
-          pcd.ovl.data.cell = system.protect(rawEnv(pcd.ovl.data.cb))
-      else:
-        # if ev.hWaiter == 0, then event was unregistered before `poll()` call.
-        deallocShared(cast[pointer](pcd))
-
-    registerWaitableHandle(p, hEvent, flags, pcd, INFINITE, eventcb)
-    ev.hWaiter = pcd.waitFd
+    withLockIfThreads ev.eventLock:
+      ev.cb = cb
+      ev.vFD = p.vd.nextVirtualHandle
+      p.vd.nextVirtualHandle = VirtualFD(int(p.vd.nextVirtualHandle) + 1)
+      p.vd.virtualHandles[ev.vFD] = ev
+      ev.p = p
 
   initAll()
 else:
@@ -1116,19 +1210,39 @@ else:
                                      # queue.
   type
     AsyncFD* = distinct cint
-    Callback* = proc (fd: AsyncFD): bool {.closure, gcsafe.}
+    VirtualFD* = distinct int
+    Callback* = proc (fd: AsyncFD): bool {.closure,gcsafe.}
 
     AsyncData = object
       readList: seq[Callback]
       writeList: seq[Callback]
 
-    AsyncEvent* = distinct SelectEvent
+    AsyncEventImpl = object
+      triggered: bool
+      when compileOption("threads"):
+        eventLock: RLock
+      p: PDispatcher
+      vFD: VirtualFD
+      cb: Callback
+    AsyncEvent* = ptr AsyncEventImpl
+    #AsyncEvent* = distinct SelectEvent
 
     PDispatcher* = ref object of PDispatcherBase
       selector: Selector[AsyncData]
+      vd: VirtualEventDispatcher
+
+    VirtualEventDispatcher = object
+      virtualHandles: Table[VirtualFD, AsyncEvent] # pseudo handles for custom AsyncEvents.
+      nextVirtualHandle: VirtualFD
+      virtualMuxHandle: SelectEvent # all the virtual handles get multiplexed through a single handle.
 
   proc `==`*(x, y: AsyncFD): bool {.borrow.}
-  proc `==`*(x, y: AsyncEvent): bool {.borrow.}
+  proc `==`*(x: VirtualFD, y: VirtualFD): bool {.borrow.}
+  proc hash(x: VirtualFD): Hash {.borrow.}
+
+  proc `==`*(x, y: AsyncEvent): bool = x.vFD == y.vFD
+
+  const InvalidVirtualFD = VirtualFD(-1)
 
   template newAsyncData(): AsyncData =
     AsyncData(
@@ -1136,11 +1250,51 @@ else:
       writeList: newSeqOfCap[Callback](InitCallbackListSize)
     )
 
+  proc unregister*(ev: AsyncEvent) =
+    ## Unregisters event ``ev``.
+    doAssert(ev.vFD != InvalidVirtualFD, "Event is not registered in the queue!")
+    withLockIfThreads ev.eventLock:
+      ev.p.vd.virtualHandles.del ev.vFD
+      ev.p = nil
+      ev.cb = nil
+      ev.vFD = InvalidVirtualFD
+
+  proc initVirtualEventDispatcher(p: PDispatcher) =
+    p.vd.virtualHandles = initTable[VirtualFD, AsyncEvent]()
+    p.vd.virtualMuxHandle = newSelectEvent()
+
+    # register the real listener for all the virtual events
+    proc virtualMuxCB(fd: AsyncFD): bool {.closure,gcsafe.} =
+      # find the virtual events that triggered the physical event and
+      # add them to the callback list.
+      # Not very efficient, but requires the least coordination between threads.
+      
+      proc vcbFactory(vfd: VirtualFD) : proc() {.closure, gcsafe.} =
+        let ev = p.vd.virtualHandles[vfd]
+        result = proc() {.closure, gcSafe.} =
+          if ev.cb(vfd.AsyncFD):
+            # the convention is that if the callback returns true, unregister the event.
+            ev.unregister
+
+      for vfd, ev in p.vd.virtualHandles:
+        withLockIfThreads ev.eventLock:
+          if ev.triggered:
+            ev.triggered = false
+            p.callbacks.addLast(vcbFactory(vfd))
+
+      return false 
+
+    var data = newAsyncData()
+    data.readList.add(virtualMuxCB)
+    p.selector.registerEvent(p.vd.virtualMuxHandle, data)
+
   proc newDispatcher*(): owned(PDispatcher) =
     new result
     result.selector = newSelector[AsyncData]()
+    #result.timers.newHeapQueue()
     result.timers.clear()
     result.callbacks = initDeque[proc () {.closure, gcsafe.}](InitDelayedCallbackListSize)
+    initVirtualEventDispatcher(result)
 
   var gDisp{.threadvar.}: owned PDispatcher ## Global dispatcher
 
@@ -1165,9 +1319,6 @@ else:
 
   proc unregister*(fd: AsyncFD) =
     getGlobalDispatcher().selector.unregister(fd.SocketHandle)
-
-  proc unregister*(ev: AsyncEvent) =
-    getGlobalDispatcher().selector.unregister(SelectEvent(ev))
 
   proc contains*(disp: PDispatcher, fd: AsyncFD): bool =
     return fd.SocketHandle in disp.selector
@@ -1196,7 +1347,7 @@ else:
 
   proc hasPendingOperations*(): bool =
     let p = getGlobalDispatcher()
-    not p.selector.isEmpty() or p.timers.len != 0 or p.callbacks.len != 0
+    p.selector.numHandles() > 1 or p.vd.virtualHandles.len > 0 or p.timers.len != 0 or p.callbacks.len != 0
 
   proc prependSeq(dest: var seq[Callback]; src: sink seq[Callback]) =
     var old = move dest
@@ -1313,7 +1464,7 @@ else:
 
   proc runOnce(timeout = 500): bool =
     let p = getGlobalDispatcher()
-    if p.selector.isEmpty() and p.timers.len == 0 and p.callbacks.len == 0:
+    if p.selector.numHandles() == 1 and p.vd.virtualHandles.len == 0 and p.timers.len == 0 and p.callbacks.len == 0:
       raise newException(ValueError,
         "No handles or timers registered in dispatcher.")
 
@@ -1590,23 +1741,42 @@ else:
 
   proc newAsyncEvent*(): AsyncEvent =
     ## Creates new ``AsyncEvent``.
-    result = AsyncEvent(newSelectEvent())
+    result = cast[AsyncEvent](allocShared0(sizeof(AsyncEventImpl)))
+    result.cb = nil
+    result.vFD = InvalidVirtualFD
+    when compileOption("threads"):
+      initRLock result.eventLock
 
   proc trigger*(ev: AsyncEvent) =
     ## Sets new ``AsyncEvent`` to signaled state.
-    trigger(SelectEvent(ev))
+    withLockIfThreads ev.eventLock:
+      if ev.vFD == InvalidVirtualFD:
+        # triggering on an event that is not registered is a noop.
+        return
+      ev.triggered = true
 
-  proc close*(ev: AsyncEvent) =
-    ## Closes ``AsyncEvent``
-    close(SelectEvent(ev))
+      # send the signal to wake up the dispatcher thread.
+      trigger(ev.p.vd.virtualMuxHandle)
 
   proc addEvent*(ev: AsyncEvent, cb: Callback) =
-    ## Start watching for event ``ev``, and call callback ``cb``, when
-    ## ev will be set to signaled state.
+    ## Registers callback ``cb`` to be called when ``ev`` will be signaled
+    doAssert(ev.vFD == InvalidVirtualFD, "Event is already registered in the queue!")
+
     let p = getGlobalDispatcher()
-    var data = newAsyncData()
-    data.readList.add(cb)
-    p.selector.registerEvent(SelectEvent(ev), data)
+
+    withLockIfThreads ev.eventLock:
+      ev.cb = cb
+      ev.vFD = p.vd.nextVirtualHandle
+      p.vd.nextVirtualHandle = VirtualFD(int(p.vd.nextVirtualHandle) + 1)
+      p.vd.virtualHandles[ev.vFD] = ev
+      ev.p = p
+
+  proc close*(ev: AsyncEvent) =
+    ## Closes event ``ev``.
+    doAssert(ev.vFD != InvalidVirtualFD, "Must unregister Event before you close it!")
+    when compileOption("threads"):
+      deinitRLock(ev.eventLock)
+    deallocShared(cast[pointer](ev))
 
 proc drain*(timeout = 500) =
   ## Waits for completion of **all** events and processes them. Raises ``ValueError``

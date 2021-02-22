@@ -1,9 +1,8 @@
 discard """
 output: '''
+triggerCount: 8000
 hasPendingOperations: false
-triggerCount: 100
 '''
-disabled: "windows"
 """
 
 import asyncDispatch
@@ -11,7 +10,7 @@ import asyncDispatch
 var triggerCount = 0
 var evs = newSeq[AsyncEvent]()
 
-for i in 0 ..< 100: # has to be lower than the typical physical fd limit
+for i in 0 ..< 8000: # some number way higher than the typical physical fd limit
   var ev = newAsyncEvent()
   evs.add(ev)
   addEvent(ev, proc(fd: AsyncFD): bool {.gcsafe,closure.} = triggerCount += 1; true)
