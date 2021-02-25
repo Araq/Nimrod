@@ -16,6 +16,8 @@ type
   DepG = seq[DepN]
 
 when defined(debugReorder):
+  import tables
+
   var idNames = newTable[int, string]()
 
 proc newDepN(id: int, pnode: PNode): DepN =
