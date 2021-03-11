@@ -210,6 +210,7 @@ provided by the operating system.
 
 - Added `htmlgen.portal` for [making "SPA style" pages using HTML only.](https://web.dev/hands-on-portals)
 
+- Added `os.rebasePath`
 
 ## Language changes
 
