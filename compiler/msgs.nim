@@ -297,7 +297,8 @@ proc `??`* (conf: ConfigRef; info: TLineInfo, filename: string): bool =
 type
   MsgFlag* = enum  ## flags altering msgWriteln behavior
     msgStdout,     ## force writing to stdout, even stderr is default
-    msgSkipHook    ## skip message hook even if it is present
+    msgSkipHook,   ## skip message hook even if it is present
+    msgTty         ## only output on terminal
   MsgFlags* = set[MsgFlag]
 
 proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
@@ -311,12 +312,12 @@ proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   #if conf.cmd == cmdIdeTools and optCDebug notin gGlobalOptions: return
   if not isNil(conf.writelnHook) and msgSkipHook notin flags:
     conf.writelnHook(s)
-  elif optStdout in conf.globalOptions or msgStdout in flags:
+  elif optStdout in conf.globalOptions or msgStdout in flags and (msgTty notin flags or stdout.isatty):
     if eStdOut in conf.m.errorOutputs:
       flushDot(conf)
       writeLine(stdout, s)
       flushFile(stdout)
-  else:
+  elif msgTty notin flags or stderr.isatty:
     if eStdErr in conf.m.errorOutputs:
       flushDot(conf)
       writeLine(stderr, s)
@@ -630,3 +631,59 @@ template listMsg(title, r) =
 
 proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", warnMin..warnMax)
 proc listHints*(conf: ConfigRef) = listMsg("Hints:", hintMin..hintMax)
+
+{.warning: "A warning to test the feature".}
+proc ciErrorHook*(conf: ConfigRef, info: TLineInfo, msg: string, severity: Severity) =
+  var active {.global.} = true
+  if active:
+    if existsEnv "GITHUB_ACTIONS":
+      func addGHLocation(s: var string, conf: ConfigRef, info: TLineInfo) =
+        if info != unknownLineInfo:
+          s.add " file="
+          s.add conf.toFullPath(info)
+          s.add ",line="
+          s.addInt info.line.int
+          s.add ",col="
+          s.addInt info.col.int + 1
+
+      var buf: string
+      case severity
+      of Severity.Warning, Severity.Error:
+        if severity == Severity.Warning:
+          buf.add "::warning"
+        else:
+          buf.add "::error"
+        buf.addGHLocation(conf, info)
+        buf.add "::"
+        buf.add msg
+
+        conf.msgWriteln buf
+      else:
+        discard "Don't report hints"
+    elif existsEnv "TF_BUILD":
+      func addAzureLocation(s: var string, conf: ConfigRef, info: TLineInfo) =
+        if info != unknownLineInfo:
+          s.add ";sourcepath="
+          s.add conf.toFullPath(info)
+          s.add ";linenumber="
+          s.addInt info.line.int
+          s.add ";columnnumber="
+          s.addInt info.col.int + 1
+
+      var buf = "##vso[task.logissue "
+      case severity
+      of Severity.Warning, Severity.Error:
+        if severity == Severity.Warning:
+          buf.add "type=warning"
+        else:
+          buf.add "type=error"
+        buf.addAzureLocation(conf, info)
+        buf.add "]"
+        buf.add msg
+
+
+        conf.msgWriteln buf, {msgTty}
+      else:
+        discard "Don't report hints"
+    else:
+      active = false

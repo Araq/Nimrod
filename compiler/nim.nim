@@ -77,6 +77,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     writeCommandLineUsage(conf)
     return
 
+  conf.structuredErrorHook = ciErrorHook
   self.processCmdLineAndProjectPath(conf)
   var graph = newModuleGraph(cache, conf)
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
