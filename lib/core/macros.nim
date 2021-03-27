@@ -1683,3 +1683,50 @@ proc extractDocCommentsAndRunnables*(n: NimNode): NimNode =
         result.add ni
       else: break
     else: break
+
+template typeOrVoid[T](a: T): type =
+  ## Workaround for the fact that `typeof(procReturningVoid())` doesn't work (yet).
+  T
+
+macro asMacro*(fn: untyped, args: varargs[untyped]): untyped {.since: (1,5,1).} =
+  ## Calls a proc `fn` with `NimNode` params as a macro. This avoids having to
+  ## define a corresponding macro manually.
+  runnableExamples:
+    assert lispRepr.asMacro(1 + 2) == """(Infix (Ident "+") (IntLit 1) (IntLit 2))"""
+    assert treeRepr.asMacro(1 + 2) == """
+Infix
+  Ident "+"
+  IntLit 1
+  IntLit 2"""
+    # non-NimNode arguments can be passed via an explicit `static`:
+    proc foo(a: NimNode, b: int): auto = (a.repr, b * 10)
+    assert foo.asMacro("a" & nonexistant, static(3)) == ("\"a\" & nonexistant", 3 * 10)
+
+    assert parseExpr.asMacro(static("3*4")) == 3*4
+    parseStmt.asMacro(static("proc fn(): int = 3*5"))
+    assert fn() == 3*5
+
+    # `foo.asMacro` generates a proc like this, and avoids having to define it manually:
+    macro foo2(a: untyped, b: static int): untyped = newLit foo(a, b)
+    assert foo2("a" & nonexistant, 3) == ("\"a\" & nonexistant", 3 * 10)
+
+  let body = newCall(fn)
+  let args2 = ident"args"
+  for i in 0..<args.len:
+    let ai = args[i]
+    if ai.kind == nnkCall and ai[0].kind == nnkIdent and ai[0].strVal == "static":
+      body.add ai
+    else:
+      body.add newTree(nnkBracketExpr, [args2, newLit i])
+  let impl = genSym(nskMacro, "impl")
+  result = quote do:
+    macro `impl`(`args2`: varargs[untyped]): untyped =
+      when typeOrVoid(`body`) is void:
+        `body`
+      else:
+        type T = typeof(`body`)
+        when T is NimNode: # or we could add a `newLit(a: NimNode)` overload
+          result = `body`
+        else:
+          result = newLit(`body`)
+    `impl`(`args`)
