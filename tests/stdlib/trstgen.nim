@@ -10,7 +10,7 @@ import unittest, strutils, strtabs
 import std/private/miscdollars
 
 proc toHtml(input: string,
-            rstOptions: RstParseOptions = {roSupportMarkdown},
+            rstOptions: RstParseOptions = {roSupportMarkdown, roNoGenerateAnchors},
             error: ref string = nil,
             warnings: ref seq[string] = nil): string =
   ## If `error` is nil then no errors should be generated.
@@ -208,7 +208,8 @@ not in table"""
 <tr><td>E1 | text</td><td></td></tr>
 <tr><td></td><td>F2 without pipe</td></tr>
 </table><p>not in table</p>
-"""
+""", output1
+# </table><p><a class="nimanchor" id="-ROOT-1" href="#-ROOT-1">🔗</a> not in table</p>
     let input2 = """
 | A1 header | A2 |
 | --- | --- |"""
@@ -653,7 +654,7 @@ Test1
     let output1 = input1.toHtml
     for i in 1..5:
       doAssert ($i & ". line" & $i) notin output1
-      doAssert ("<li>line" & $i & " " & $i & "</li>") in output1
+      check ("<li>line" & $i & " " & $i & "</li>") in output1
 
     let input2 = dedent """
       3. line3
@@ -1168,7 +1169,7 @@ Test1
       That was a transition.
     """
     let output1 = input1.toHtml
-    doAssert "<p id=\"target000\""     in output1
+    check "<p id=\"target000\""     in output1
     doAssert "<ul id=\"target001\""    in output1
     doAssert "<ol id=\"target002\""    in output1
     doAssert "<dl id=\"target003\""    in output1

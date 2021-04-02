@@ -297,13 +297,15 @@ template idS(txt: string): string =
         # we add \label for page number references via \pageref, while
         # \hypertarget is for clickable links via \hyperlink.
 
-proc renderAux(d: PDoc, n: PRstNode, html, tex: string, result: var string) =
+proc renderAux(d: PDoc, n: PRstNode, html, tex: string, result: var string, useAnchor = false) =
   # formats sons of `n` as substitution variable $1 inside strings `html` and
   # `tex`, internal target (anchor) is provided as substitute $2.
   var tmp = ""
   for i in countup(0, len(n)-1): renderRstToOut(d, n.sons[i], tmp)
   case d.target
-  of outHtml:  result.addf(html, [tmp, n.anchor.idS])
+  of outHtml:
+    let anchor = if useAnchor: n.anchor else: n.anchor.idS
+    result.addf(html, [tmp, anchor])
   of outLatex: result.addf(tex,  [tmp, n.anchor.idS])
 
 # ---------------- index handling --------------------------------------------
@@ -764,7 +766,7 @@ proc renderHeadline(d: PDoc, n: PRstNode, result: var string) =
     if n2.level < n.level:
       sectionPrefix = rstnodeToRefname(n2) & "-"
       break
-  var refname = sectionPrefix & rstnodeToRefname(n)
+  let refname = sectionPrefix & rstnodeToRefname(n)
   if d.hasToc:
     var length = len(d.tocPart)
     setLen(d.tocPart, length + 1)
@@ -1134,19 +1136,50 @@ proc renderAdmonition(d: PDoc, n: PRstNode, result: var string) =
         "$1\n\\end{mdframed}\n",
       result)
 
+proc computeAnchorGen(n: PRstNode) =
+  var anchorLast = "ROOT"
+  var idLast = 0
+  proc impl(n: PRstNode) =
+    if n == nil: return
+    n.anchorKind = raVisited # can be over-written below
+    template update(anchorNew) =
+      let anchor = anchorNew
+      n.anchor = anchor
+      anchorLast = anchor
+      idLast = 0
+    if n.anchor.len > 0:
+      n.anchorKind = raExplicit
+      update(n.anchor)
+    elif n.kind in {rnHeadline}:
+      n.anchorKind = raFromTitle
+      update(n.rstnodeToRefname)
+    elif n.kind in {rnParagraph, rnBulletItem, rnEnumItem}:
+      n.anchorKind = raInterpolated
+      idLast.inc
+      n.anchor = "-" & anchorLast & "-" & $idLast
+    for ai in n.sons: impl(ai)
+  impl(n)
+
 proc renderRstToOut(d: PDoc, n: PRstNode, result: var string) =
   if n == nil: return
+  let generateAnchors = roNoGenerateAnchors notin d.options
+  var anchorLink = ""
+  if generateAnchors:
+    anchorLink = """<a class="nimanchor" id="$2" href="#$2">🔗</a> """
+    if n.anchorKind == raDefault: computeAnchorGen(n)
+
   case n.kind
   of rnInner: renderAux(d, n, result)
   of rnHeadline, rnMarkdownHeadline: renderHeadline(d, n, result)
   of rnOverline: renderOverline(d, n, result)
   of rnTransition: renderAux(d, n, "<hr$2 />\n", "\\hrule$2\n", result)
-  of rnParagraph: renderAux(d, n, "<p$2>$1</p>\n", "$2\n$1\n\n", result)
+  of rnParagraph:
+    renderAux(d, n, "<p$$2>$1$$1</p>\n" % anchorLink, "$2\n$1\n\n", result, useAnchor = generateAnchors)
   of rnBulletList:
     renderAux(d, n, "<ul$2 class=\"simple\">$1</ul>\n",
                     "\\begin{itemize}\n$2\n$1\\end{itemize}\n", result)
   of rnBulletItem, rnEnumItem:
-    renderAux(d, n, "<li$2>$1</li>\n", "\\item $2$1\n", result)
+    renderAux(d, n, "<li$$2>$1$$1</li>\n" % anchorLink, "\\item $2$1\n", result, useAnchor = generateAnchors)
   of rnEnumList: renderEnumList(d, n, result)
   of rnDefList:
     renderAux(d, n, "<dl$2 class=\"docutils\">$1</dl>\n",

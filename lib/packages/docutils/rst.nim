@@ -162,6 +162,7 @@ type
     roSupportRawDirective,    ## support the ``raw`` directive (don't support
                               ## it for sandboxing)
     roSupportMarkdown         ## support additional features of Markdown
+    roNoGenerateAnchors       ## generate anchors for paragraphs, list items, etc.
 
   RstParseOptions* = set[RstParseOption]
 
