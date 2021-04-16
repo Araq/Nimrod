@@ -542,3 +542,31 @@ block: # bug #8015
     doAssert $viaProc.table[0] == "(kind: Fixed, cost: 999)"
     doAssert viaProc.table[1].handler() == 100
     doAssert viaProc.table[2].handler() == 200
+
+block: # bug #15730
+  proc main =
+    var a1: cstring = nil
+    var a2: cstring
+    doAssert a1 == nil
+    doAssert a2 == nil
+    doAssert a1 == a2
+    doAssert a1 == a1
+    doAssert a1.isNil
+    doAssert a2.isNil
+    var a3: cstring = "ab"
+    doAssert a3 != nil
+    doAssert not a3.isNil
+    var a4: cstring = ""
+    doAssert a4 != nil
+    doAssert not a4.isNil
+    var a5: cstring = "ab"
+    doAssert a5 == a3
+    doAssert a5 != a4
+    var a6 = a4
+    doAssert a6 == ""
+    doAssert a6 == a4
+    var a4b: cstring = """"""
+    doAssert a4b == a4
+    doAssert a4b.len == 0
+  static:main()
+  main()
