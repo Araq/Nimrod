@@ -16,11 +16,14 @@ import
   packages/docutils/rst, packages/docutils/rstgen,
   json, xmltree, trees, types,
   typesrenderer, astalgo, lineinfos, intsets,
-  pathutils, trees, tables, nimpaths, renderverbatim, osproc
+  pathutils, trees, tables, nimpaths, renderverbatim, osproc, std/private/gitutils
 
 from uri import encodeUrl
 from std/private/globs import nativeToUnixPath
 
+const isRecentNim = defined(nimHasCustomLiterals) # PRTEMP
+when isRecentNim:
+  import std/wrapnils
 
 const
   exportSection = skField
@@ -55,6 +58,7 @@ type
     thisDir*: AbsoluteDir
     exampleGroups: OrderedTable[string, ExampleGroup]
     wroteSupportFiles*: bool
+    projectMetadata*: string
 
   PDoc* = ref TDocumentor ## Alias to type less.
 
@@ -184,6 +188,9 @@ proc getOutFile2(conf: ConfigRef; filename: RelativeFile,
   else:
     result = getOutFile(conf, filename, ext)
 
+proc computeprojectMetadata(filename: AbsoluteFile): string =
+  result = "githash: $1" % [filename.string.parentDir.getGitHashHuman]
+
 proc newDocumentor*(filename: AbsoluteFile; cache: IdentCache; conf: ConfigRef, outExt: string = HtmlExt, module: PSym = nil): PDoc =
   declareClosures()
   new(result)
@@ -213,6 +220,11 @@ proc newDocumentor*(filename: AbsoluteFile; cache: IdentCache; conf: ConfigRef, 
     result.analytics = ""
 
   result.seenSymbols = newStringTable(modeCaseInsensitive)
+
+  if module!=nil and module.owner.id == conf.mainPackageId:
+    doAssert result.projectMetadata.len == 0
+    result.projectMetadata = computeprojectMetadata(filename)
+
   result.id = 100
   result.jArray = newJArray()
   initStrTable result.types
@@ -1259,6 +1271,16 @@ proc genSection(d: PDoc, kind: TSymKind, groupedToc = false) =
 proc relLink(outDir: AbsoluteDir, destFile: AbsoluteFile, linkto: RelativeFile): Rope =
   rope($relativeTo(outDir / linkto, destFile.splitFile().dir, '/'))
 
+proc interpDocFile(d: PDoc, conf: ConfigRef, destFile: AbsoluteFile, title: string, content: Rope, toc: Rope = nil, subtitle: Rope = nil): Rope =
+  when isRecentNim:
+    result = ropeFormatNamedVars(conf, getConfigVar(conf, "doc.file"), [
+      "nimdoccss", "dochackjs", "title", "subtitle", "tableofcontents", "moduledesc", "date", "time",
+      "content", "author", "version", "analytics", "deprecationMsg", "projectMetadata"],
+      [relLink(conf.outDir, destFile, nimdocOutCss.RelativeFile),
+      relLink(conf.outDir, destFile, docHackJsFname.RelativeFile),
+      title.rope, subtitle, toc, ?.d.modDesc, rope(getDateStr()), rope(getClockStr()),
+      content, ?.d.meta[metaAuthor].rope, ?.d.meta[metaVersion].rope, ?.d.analytics.rope, ?.d.modDeprecationMsg, ?.d.projectMetadata.rope])
+
 proc genOutFile(d: PDoc, groupedToc = false): Rope =
   var
     code, content: Rope
@@ -1301,13 +1323,7 @@ proc genOutFile(d: PDoc, groupedToc = false): Rope =
       rope(getClockStr()), code, d.modDeprecationMsg, relLink(d.conf.outDir, d.destFile.AbsoluteFile, theindexFname.RelativeFile), groupsection.rope, seeSrcRope])
   if optCompileOnly notin d.conf.globalOptions:
     # XXX what is this hack doing here? 'optCompileOnly' means raw output!?
-    code = ropeFormatNamedVars(d.conf, getConfigVar(d.conf, "doc.file"), [
-        "nimdoccss", "dochackjs",  "title", "subtitle", "tableofcontents", "moduledesc", "date", "time",
-        "content", "author", "version", "analytics", "deprecationMsg"],
-        [relLink(d.conf.outDir, d.destFile.AbsoluteFile, nimdocOutCss.RelativeFile),
-        relLink(d.conf.outDir, d.destFile.AbsoluteFile, docHackJsFname.RelativeFile),
-        title.rope, subtitle, toc, d.modDesc, rope(getDateStr()), rope(getClockStr()),
-        content, d.meta[metaAuthor].rope, d.meta[metaVersion].rope, d.analytics.rope, d.modDeprecationMsg])
+    code = interpDocFile(d, d.conf, d.destFile.AbsoluteFile, title = title, content=content, toc=toc, subtitle = subtitle)
   else:
     code = content
   result = code
@@ -1456,16 +1472,7 @@ proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") 
   var outFile = outFile
   if outFile.isEmpty: outFile = theindexFname.RelativeFile.changeFileExt("")
   let filename = getOutFile(conf, outFile, HtmlExt)
-
-  let code = ropeFormatNamedVars(conf, getConfigVar(conf, "doc.file"), [
-      "nimdoccss", "dochackjs",
-      "title", "subtitle", "tableofcontents", "moduledesc", "date", "time",
-      "content", "author", "version", "analytics"],
-      [relLink(conf.outDir, filename, nimdocOutCss.RelativeFile),
-      relLink(conf.outDir, filename, docHackJsFname.RelativeFile),
-      rope"Index", rope"", nil, nil, rope(getDateStr()),
-      rope(getClockStr()), content, nil, nil, nil])
   # no analytics because context is not available
-
+  let code = interpDocFile(d = nil, conf, filename, title = "Index", content=content)
   if not writeRope(code, filename):
     rawMessage(conf, errCannotOpenFile, filename.string)
