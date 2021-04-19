@@ -261,6 +261,21 @@ block fileOperations:
 
     removeDir(dname)
 
+
+    block:
+      const dname = buildDir/"D20210116T1406234"
+      const symlinkName = dname/"D20210101T191320_BROKEN_SYMLINK"
+      const symlinkSrc = buildDir.parentDir/"D20210101T1920_nonexistant"
+
+      createDir(dname)
+
+      let f = open(symlinkSrc, fmWrite)
+      f.close()
+
+      createSymlink(symlinkSrc, symlinkName)
+
+      doAssert expandSymlink(symlinkName).extractFilename == symlinkSrc.extractFilename, $expandSymlink(symlinkName)
+
 import times
 block modificationTime:
   # Test get/set modification times
