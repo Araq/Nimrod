@@ -50,6 +50,7 @@
 - On POSIX systems, we now ignore `SIGPIPE` signals, use `-d:nimLegacySigpipeHandler`
   for previous behavior.
 
+- Added `std/pointers` to handle `ptr[T]` variables without needing `cast`.
 
 ## Standard library additions and changes
 - Added support for parenthesized expressions in `strformat`
