@@ -286,6 +286,10 @@
 - Added `genasts.genAst` that avoids the problems inherent with `quote do` and can
   be used as a replacement.
 
+- Added `stdx/` for standard library extensions, see `stdx/readme.md`
+
+- Added `stdx/strlangs` to help tooling (e.g. syntax highlighters) how to interpret string literals.
+
 ## Language changes
 
 - `nimscript` now handles `except Exception as e`.

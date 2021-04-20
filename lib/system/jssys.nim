@@ -9,6 +9,7 @@
 
 include system/indexerrors
 import std/private/miscdollars
+import stdx/strlangs
 
 proc log*(s: cstring) {.importc: "console.log", varargs, nodecl.}
 
@@ -197,7 +198,7 @@ proc makeNimstrLit(c: cstring): string {.asmNoStackFrame, compilerproc.} =
   """.}
 
 proc cstrToNimstr(c: cstring): string {.asmNoStackFrame, compilerproc.} =
-  {.emit: """
+  {.emit: lang"""js
   var ln = `c`.length;
   var result = new Array(ln);
   var r = 0;
