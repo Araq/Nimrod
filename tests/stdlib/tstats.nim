@@ -30,6 +30,44 @@ rs1.push(@[1.0, 2.2, 1.4, 4.9])
 doAssert(rs1.sum == 9.5)
 doAssert(rs1.mean() == 2.375)
 
+block:
+  var 
+    a4 = [6, 3, 9, 1]
+    a5 = [4, 6, 3, 9, 1]
+    a: array[len(a4), int]
+    ax: array[len(a5), int]
+
+  func myCmp(x,y:int):int =
+    if x==y : 0 elif x<y : -1 else: 1
+
+  a= a4
+  doAssert quickSelect(a, 0, len(a4)-1, 0, myCmp) == 1  # smallest element
+  a= a4
+  doAssert quickSelect(a, 0, len(a4)-1, len(a4)-1, myCmp) == 9  # largest element
+  #
+  a= a4
+  doAssert median(a,myCmp) == 4.5
+  a= a4
+  doAssert median(a,mdlow,myCmp) == 3
+  a= a4
+  doAssert median(a,mdhigh,myCmp) == 6
+  #
+  ax= a5
+  doAssert median(ax,myCmp) == 4.0
+  ax= a5
+  doAssert median(ax,mdlow,myCmp) == 4
+  ax= a5
+  doAssert median(ax,mdhigh,myCmp) == 4
+
+  func fltCmp(x,y:float):int =
+    if x==y : 0
+    elif x<y : -1
+    else     : 1
+
+  var  f = [7.0,4.0,6.0,3.0,9.0,1.0]
+
+  doAssert median(f,fltCmp) == 5.0
+
 when not defined(cpu32):
   # XXX For some reason on 32bit CPUs these results differ
   var rr: RunningRegress
