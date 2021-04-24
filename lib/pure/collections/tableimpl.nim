@@ -31,9 +31,9 @@ proc rawInsert[X, A, B](t: var X, data: var KeyValuePairSeq[A, B],
   rawInsertImpl()
 
 template checkIfInitialized() =
-  when compiles(defaultInitialSize):
+  when declared(nimTableDefaultInitialCapacity):
     if t.dataLen == 0:
-      initImpl(t, defaultInitialSize)
+      initImpl(t, nimTableDefaultInitialCapacity)
 
 template addImpl(enlarge) {.dirty.} =
   checkIfInitialized()
@@ -171,7 +171,7 @@ template initImpl(result: typed, size: int) =
       result.last = -1
 
 template insertImpl() = # for CountTable
-  if t.dataLen == 0: initImpl(t, defaultInitialSize)
+  if t.dataLen == 0: initImpl(t, nimTableDefaultInitialCapacity)
   if mustRehash(t): enlarge(t)
   ctRawInsert(t, t.data, key, val)
   inc(t.counter)
