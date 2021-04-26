@@ -12,7 +12,7 @@
 import
   intsets, strutils, options, ast, astalgo, msgs,
   idents, renderer, types, magicsys, lowerings, tables, modulegraphs, lineinfos,
-  transf, liftdestructors
+  liftdestructors
 
 discard """
   The basic approach is that captured vars need to be put on the heap and
@@ -436,7 +436,7 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
     if innerProc:
       if s.isIterator: c.somethingToDo = true
       if not c.processed.containsOrIncl(s.id):
-        let body = transformBody(c.graph, c.idgen, s, cache = true)
+        let body = getBody(c.graph, s) # transformBody(c.graph, c.idgen, s, useCache)
         detectCapturedVars(body, s, c)
     let ow = s.skipGenericOwner
     if ow == owner:
@@ -732,13 +732,12 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
         #  echo renderTree(s.getBody, {renderIds})
         let oldInContainer = c.inContainer
         c.inContainer = 0
-        var body = transformBody(d.graph, d.idgen, s, cache = false)
+        var body = getBody(d.graph, s) #transformBody(d.graph, d.idgen, s, dontUseCache)
         body = liftCapturedVars(body, s, d, c)
-        if c.envVars.getOrDefault(s.id).isNil:
-          s.transformedBody = body
-        else:
-          s.transformedBody = newTree(nkStmtList, rawClosureCreation(s, d, c, n.info), body)
-          finishClosureCreation(s, d, c, n.info, s.transformedBody)
+        if not c.envVars.getOrDefault(s.id).isNil:
+          body = newTree(nkStmtList, rawClosureCreation(s, d, c, n.info), body)
+          finishClosureCreation(s, d, c, n.info, body)
+        setRoutineBody(d.graph, s, body)
         c.inContainer = oldInContainer
 
       if s.typ.callConv == ccClosure:

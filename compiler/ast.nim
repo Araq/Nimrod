@@ -854,7 +854,7 @@ type
     of routineKinds:
       #procInstCache*: seq[PInstantiation]
       gcUnsafetyReason*: PSym  # for better error messages wrt gcsafe
-      transformedBody*: PNode  # cached body after transf pass
+      semcheckedBody*: PNode   # proc body after semantic checking
     of skLet, skVar, skField, skForVar:
       guard*: PSym
       bitsize*: int
@@ -1640,7 +1640,8 @@ proc transitionGenericParamToType*(s: PSym) =
 proc transitionRoutineSymKind*(s: PSym, kind: range[skProc..skTemplate]) =
   transitionSymKindCommon(kind)
   s.gcUnsafetyReason = obj.gcUnsafetyReason
-  s.transformedBody = obj.transformedBody
+  s.semcheckedBody = obj.semcheckedBody
+  #s.transformedBody = obj.transformedBody
 
 proc transitionToLet*(s: PSym) =
   transitionSymKindCommon(skLet)
