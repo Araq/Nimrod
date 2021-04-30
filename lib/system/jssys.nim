@@ -105,10 +105,15 @@ proc rawWriteStackTrace(): string =
   else:
     result = "No stack traceback available\n"
 
+from system/ansi_c import cstderr, rawWrite
+  # ansi_c already imported via system > ansi_c
+
 proc writeStackTrace() =
   var trace = rawWriteStackTrace()
-  trace.setLen(trace.len - 1)
-  echo trace
+  when not defined(nodejs):
+    # maybe we need `rawWriteln`, instead of special case here
+    trace.setLen(trace.len - 1)
+  rawWrite(cstderr, trace)
 
 proc getStackTrace*(): string = rawWriteStackTrace()
 proc getStackTrace*(e: ref Exception): string = e.trace

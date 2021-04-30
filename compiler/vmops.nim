@@ -27,6 +27,7 @@ from md5 import getMD5
 from times import cpuTime
 from hashes import hash
 from osproc import nil
+from system/ansi_c import rawWrite, CFilePtrFake, CFilePtr, cstdin, cstdout, cstderr
 
 from sighashes import symBodyDigest
 
@@ -230,6 +231,17 @@ proc registerAdditionalOps*(c: PCtx) =
     else:
       systemop gorgeEx
   macrosop getProjectPath
+
+  registerCallback c, "ansi_c.rawWrite", proc (a: VmArgs) =
+    let fileFake = a.getInt(0).CFilePtrFake
+    var file: CFilePtr
+    case fileFake
+    of CFilePtrFake.kunknown, CFilePtrFake.kstdin:
+      stackTrace(c, PStackFrame(prc: c.prc.sym, comesFrom: 0, next: nil), c.exceptionInstr, "invalid: " % $fileFake, a.currentLineInfo)
+    of CFilePtrFake.kstderr: file = cstderr
+    of CFilePtrFake.kstdout: file = cstdout
+    let s = a.getString(1)
+    setResult(a, rawWrite(file, s))
 
   registerCallback c, "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
