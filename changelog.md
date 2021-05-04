@@ -63,6 +63,8 @@
 - Nim compiler now adds ASCII unit separator `\31` before a newline for every generated
   message (potentially multiline), so tooling can tell when messages start and end.
 
+- deprecated `os.isValidFilename`, see `std/paths`
+
 
 ## Standard library additions and changes
 - Added support for parenthesized expressions in `strformat`
@@ -294,6 +296,8 @@
 
 - Added `genasts.genAst` that avoids the problems inherent with `quote do` and can
   be used as a replacement.
+
+- Added `std/paths` module.
 
 
 ## Language changes
