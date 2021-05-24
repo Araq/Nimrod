@@ -18,7 +18,7 @@ import compiler/nodejs
 import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 from std/private/gitutils import diffStrings
-
+# import timn/dbgs
 proc trimUnitSep(x: var string) =
   let L = x.len
   if L > 0 and x[^1] == '\31':
@@ -68,19 +68,16 @@ Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` ena
 tests with remote networking (as in CI).
 """ % resultsFile
 
-proc isNimRepoTests(): bool =
-  # this logic could either be specific to cwd, or to some file derived from
-  # the input file, eg testament r /pathto/tests/foo/tmain.nim; we choose
-  # the former since it's simpler and also works with `testament all`.
-  let file = "testament"/"testament.nim.cfg"
-  result = file.fileExists
-
 type
   Category = distinct string
   TResults = object
     total, passed, failedButAllowed, skipped: int
       ## xxx rename passed to passedOrAllowedFailure
     data: string
+    config*: TestManager
+  TestManager* = ref object
+    flatSpecs*: seq[TSpec] # flat tests
+    useMegatest: bool
   TTest = object
     name: string
     cat: Category
@@ -90,7 +87,20 @@ type
     startTime: float
     debugInfo: string
 
+proc initResults: TResults =
+  result.total = 0
+  result.passed = 0
+  result.failedButAllowed = 0
+  result.skipped = 0
+  result.data = ""
+
+proc initTestManager*(): TestManager =
+  # analog to ConfigRef in nim compiler: holds global data
+  result = TestManager()
+  result.useMegatest = true
+
 # ----------------------------------------------------------------------------
+proc isTestEnabled(r: var TResults, test: TTest): bool
 
 let
   pegLineError =
@@ -245,13 +255,6 @@ proc callCCompiler(cmdTemplate, filename, options: string,
   else:
     result.err = reNimcCrash
 
-proc initResults: TResults =
-  result.total = 0
-  result.passed = 0
-  result.failedButAllowed = 0
-  result.skipped = 0
-  result.data = ""
-
 macro ignoreStyleEcho(args: varargs[typed]): untyped =
   let typForegroundColor = bindSym"ForegroundColor".getType
   let typBackgroundColor = bindSym"BackgroundColor".getType
@@ -289,7 +292,8 @@ proc addResult(r: var TResults, test: TTest, target: TTarget,
   # test.name is easier to find than test.name.extractFilename
   # A bit hacky but simple and works with tests/testament/tshould_not_work.nim
   var name = test.name.replace(DirSep, '/')
-  name.add ' ' & $target
+  doAssert test.spec.isFlat or (test.spec.matrix.len == 0 and test.spec.targets.len == 0)
+  name.add ' ' & $target & " " & test.spec.matrixFlat
   if allowFailure:
     name.add " (allowed to fail) "
   if test.options.len > 0: name.add ' ' & test.options
@@ -481,16 +485,6 @@ proc getTestSpecTarget(): TTarget =
   else:
     result = targetC
 
-proc checkDisabled(r: var TResults, test: TTest): bool =
-  if test.spec.err in {reDisabled, reJoined}:
-    # targetC is a lie, but parameter is required
-    r.addResult(test, targetC, "", "", test.spec.err)
-    inc(r.skipped)
-    inc(r.total)
-    result = false
-  else:
-    result = true
-
 var count = 0
 
 proc equalModuloLastNewline(a, b: string): bool =
@@ -565,19 +559,21 @@ proc testSpecHelper(r: var TResults, test: var TTest, expected: TSpec,
     let given = callNimCompilerImpl()
     cmpMsgs(r, expected, given, test, target)
 
-proc targetHelper(r: var TResults, test: TTest, expected: TSpec, extraOptions = "") =
-  for target in expected.targets:
-    inc(r.total)
-    if target notin gTargets:
-      r.addResult(test, target, "", "", reDisabled)
-      inc(r.skipped)
-    elif simulate:
-      inc count
-      echo "testSpec count: ", count, " expected: ", expected
-    else:
-      let nimcache = nimcacheDir(test.name, test.options, target)
-      var testClone = test
-      testSpecHelper(r, testClone, expected, target, nimcache, extraOptions)
+proc targetHelper(r: var TResults, test: TTest, expected: TSpec) =
+  doAssert expected.isFlat
+  doAssert test.spec.isFlat
+  let target = expected.targetFlat
+  inc(r.total)
+  if target notin gTargets: # PRTEMP?
+    r.addResult(test, target, "", "", reDisabled)
+    inc(r.skipped)
+  elif simulate:
+    inc count
+    echo "testSpec count: ", count, " expected: ", expected
+  else:
+    let nimcache = nimcacheDir(test.name, test.options, target)
+    var testClone = test
+    testSpecHelper(r, testClone, expected, target, nimcache, expected.matrixFlat)
 
 proc testSpec(r: var TResults, test: TTest, targets: set[TTarget] = {}) =
   var expected = test.spec
@@ -586,56 +582,62 @@ proc testSpec(r: var TResults, test: TTest, targets: set[TTarget] = {}) =
     r.addResult(test, targetC, "", expected.parseErrors, reInvalidSpec)
     inc(r.total)
     return
-  if not checkDisabled(r, test): return
-
   expected.targets.incl targets
-  # still no target specified at all
   if expected.targets == {}:
     expected.targets = {getTestSpecTarget()}
-  if test.spec.matrix.len > 0:
-    for m in test.spec.matrix:
-      targetHelper(r, test, expected, m)
+  if expected.isFlat:
+    if isTestEnabled(r, test):
+      targetHelper(r, test, expected)
   else:
-    targetHelper(r, test, expected)
+    for spec2 in flattentSepc(expected):
+      var test = test
+      test.spec = spec2
+      if isTestEnabled(r, test):
+        targetHelper(r, test, spec2)
 
 proc testSpecWithNimcache(r: var TResults, test: TTest; nimcache: string) {.used.} =
-  if not checkDisabled(r, test): return
-  for target in test.spec.targets:
-    inc(r.total)
-    var testClone = test
-    testSpecHelper(r, testClone, test.spec, target, nimcache)
+  for spec2 in flattentSepc(test.spec):
+    var test = test
+    test.spec = spec2
+    if isTestEnabled(r, test):
+      inc(r.total)
+      testSpecHelper(r, test, spec2, spec2.targetFlat, nimcache, spec2.matrixFlat) # PRTEMP: bugfix: honors matrix
 
 proc testC(r: var TResults, test: TTest, action: TTestAction) =
   # runs C code. Doesn't support any specs, just goes by exit code.
-  if not checkDisabled(r, test): return
-
-  let tname = test.name.addFileExt(".c")
-  inc(r.total)
-  maybeStyledEcho "Processing ", fgCyan, extractFilename(tname)
-  var given = callCCompiler(getCmd(TSpec()), test.name & ".c", test.options, targetC)
-  if given.err != reSuccess:
-    r.addResult(test, targetC, "", given.msg, given.err)
-  elif action == actionRun:
-    let exeFile = changeFileExt(test.name, ExeExt)
-    var (_, exitCode) = execCmdEx(exeFile, options = {poStdErrToStdOut, poUsePath})
-    if exitCode != 0: given.err = reExitcodesDiffer
-  if given.err == reSuccess: inc(r.passed)
+  for spec2 in flattentSepc(test.spec):
+    var test = test
+    test.spec = spec2
+    if isTestEnabled(r, test):
+      let tname = test.name.addFileExt(".c")
+      inc(r.total)
+      maybeStyledEcho "Processing ", fgCyan, extractFilename(tname)
+      var given = callCCompiler(getCmd(TSpec()), test.name & ".c", test.options, targetC)
+      if given.err != reSuccess:
+        r.addResult(test, targetC, "", given.msg, given.err)
+      elif action == actionRun:
+        let exeFile = changeFileExt(test.name, ExeExt)
+        var (_, exitCode) = execCmdEx(exeFile, options = {poStdErrToStdOut, poUsePath})
+        if exitCode != 0: given.err = reExitcodesDiffer
+      if given.err == reSuccess: inc(r.passed)
 
 proc testExec(r: var TResults, test: TTest) =
   # runs executable or script, just goes by exit code
-  if not checkDisabled(r, test): return
+  for spec2 in flattentSepc(test.spec):
+    var test = test
+    test.spec = spec2
+    if isTestEnabled(r, test):
+      inc(r.total)
+      let (outp, errC) = execCmdEx(test.options.strip())
+      var given: TSpec
+      if errC == 0:
+        given.err = reSuccess
+      else:
+        given.err = reExitcodesDiffer
+        given.msg = outp
 
-  inc(r.total)
-  let (outp, errC) = execCmdEx(test.options.strip())
-  var given: TSpec
-  if errC == 0:
-    given.err = reSuccess
-  else:
-    given.err = reExitcodesDiffer
-    given.msg = outp
-
-  if given.err == reSuccess: inc(r.passed)
-  r.addResult(test, targetC, "", given.msg, given.err)
+      if given.err == reSuccess: inc(r.passed)
+      r.addResult(test, targetC, "", given.msg, given.err)
 
 proc makeTest(test, options: string, cat: Category): TTest =
   result.cat = cat
@@ -695,14 +697,18 @@ proc loadSkipFrom(name: string): seq[string] =
       result.add sline
 
 proc main() =
+  let config = initTestManager()
+  var r = initResults()
+  r.config = config
+
   azure.init()
   backend.open()
+  # xxx move these inside `TestManager`
   var optPrintResults = false
   var optFailing = false
   var targetsStr = ""
   var isMainProcess = true
   var skipFrom = ""
-  var useMegatest = true
 
   var p = initOptParser()
   p.next()
@@ -742,9 +748,9 @@ proc main() =
     of "megatest":
       case p.val:
       of "on":
-        useMegatest = true
+        config.useMegatest = true
       of "off":
-        useMegatest = false
+        config.useMegatest = false
       else:
         quit Usage
     of "backendlogging":
@@ -764,7 +770,7 @@ proc main() =
     quit Usage
   var action = p.key.normalize
   p.next()
-  var r = initResults()
+
   case action
   of "all":
     #processCategory(r, Category"megatest", p.cmdLineRest, testsDir, runJoinableTests = false)
@@ -789,11 +795,11 @@ proc main() =
         cats.add cat
     if isNimRepoTests():
       cats.add AdditionalCategories
-    if useMegatest: cats.add MegaTestCat
+    if config.useMegatest: cats.add "megatest"
 
     var cmds: seq[string]
     for cat in cats:
-      let runtype = if useMegatest: " pcat " else: " cat "
+      let runtype = if config.useMegatest: " pcat " else: " cat "
       cmds.add(myself & runtype & quoteShell(cat) & rest)
 
     proc progressStatus(idx: int) =

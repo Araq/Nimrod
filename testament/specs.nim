@@ -24,6 +24,13 @@ let isTravis* = existsEnv("TRAVIS")
 let isAppVeyor* = existsEnv("APPVEYOR")
 let isAzure* = existsEnv("TF_BUILD")
 
+proc isNimRepoTests*(): bool =
+  # this logic could either be specific to cwd, or to some file derived from
+  # the input file, eg testament r /pathto/tests/foo/tmain.nim; we choose
+  # the former since it's simpler and also works with `testament all`.
+  let file = "testament"/"testament.nim.cfg"
+  result = file.fileExists
+
 var skips*: seq[string]
 
 type
@@ -85,8 +92,15 @@ type
     maxCodeSize*: int
     err*: TResultEnum
     inCurrentBatch*: bool
+
     targets*: set[TTarget]
     matrix*: seq[string]
+
+    # xxx use case object
+    isFlat*: bool # flattened TSpec (1 TSpec with N targets and M matrix gives N*M flattened TSpec)
+    targetFlat*: TTarget
+    matrixFlat*: string
+
     nimout*: string
     nimoutFull*: bool # whether nimout is all compiler output or a subset
     parseErrors*: string            # when the spec definition is invalid, this is not empty.
@@ -100,6 +114,28 @@ type
                       # but don't rely on much precision
     inlineErrors*: seq[InlineError] # line information to error message
     debugInfo*: string # debug info to give more context
+
+# import timn/dbgs
+
+iterator flattentSepc*(a: TSpec): TSpec =
+  doAssert not a.isFlat
+  let matrix = if a.matrix.len == 0: @[""] else: a.matrix
+  var targets = a.targets
+  if targets == {}:
+    if a.file.isRelativeTo("tests/js") and isNimRepoTests():
+      targets = {targetJs}
+    else:
+      targets = {targetC} # PRTEMP getTestSpecTarget() ?
+      # TODO: move this logic to parseSpec?
+
+  # dbg a.file
+  for t in targets:
+    for m in matrix:
+      var a2 = a
+      a2.isFlat = true
+      a2.targetFlat = t
+      a2.matrixFlat = m
+      yield a2
 
 proc getCmd*(s: TSpec): string =
   if s.cmd.len == 0:
