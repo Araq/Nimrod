@@ -14,7 +14,8 @@ import
   options, ast, llstream, msgs,
   idents,
   syntaxes, modulegraphs, reorder,
-  lineinfos, pathutils
+  lineinfos, pathutils, vmconv
+from os import splitFile
 
 type
   TPassData* = tuple[input: PNode, closeOutput: PNode]
@@ -88,11 +89,19 @@ proc processImplicits(graph: ModuleGraph; implicits: seq[string], nodeKind: TNod
   for module in items(implicits):
     # implicit imports should not lead to a module importing itself
     if m.position != resolveMod(graph.config, module, relativeTo).int32:
-      var importStmt = newNodeI(nodeKind, m.info)
-      var str = newStrNode(nkStrLit, module)
-      str.info = m.info
-      importStmt.add str
-      if not processTopLevelStmt(graph, importStmt, a): break
+      var c = GenContext(cache: graph.cache, info: m.info)
+      var node: PNode
+      case nodeKind
+      of nkImportStmt:
+        let name = graph.cache.getIdent(module.splitFile.name)
+        node = genPNode(c, module, name):
+          import module as name
+          {.used: name.}
+      of nkIncludeStmt:
+        node = genPNode(c, module):
+          include module
+      else: assert false
+      if not processTopLevelStmt(graph, node, a): break
 
 const
   imperativeCode = {low(TNodeKind)..high(TNodeKind)} - {nkTemplateDef, nkProcDef, nkMethodDef,

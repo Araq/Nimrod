@@ -13,6 +13,7 @@ import
   intsets, ast, astalgo, msgs, options, idents, lookups,
   semdata, modulepaths, sigmatch, lineinfos, sets,
   modulegraphs, wordrecg
+from strutils import `%`
 
 proc readExceptSet*(c: PContext, n: PNode): IntSet =
   assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
@@ -224,19 +225,21 @@ proc importForwarded(c: PContext, n: PNode, exceptSet: IntSet; fromMod: PSym; im
 
 proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool): PSym =
   result = realModule
-  c.unusedImports.add((realModule, n.info))
   template createModuleAliasImpl(ident): untyped =
-    createModuleAlias(realModule, nextSymId c.idgen, ident, realModule.info, c.config.options)
+    createModuleAlias(realModule, nextSymId c.idgen, ident, n.info, c.config.options)
   if n.kind != nkImportAs: discard
   elif n.len != 2 or n[1].kind != nkIdent:
     localError(c.config, n.info, "module alias must be an identifier")
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
     result = createModuleAliasImpl(n[1].ident)
+  if result == realModule:
+    # avoids modifying `realModule`, see D20201209T194412 for `import {.all.}`
+    # and also for `import foo; {.used: foo.}`
+    result = createModuleAliasImpl(realModule.name)
   if importHidden:
-    if result == realModule: # avoids modifying `realModule`, see D20201209T194412.
-      result = createModuleAliasImpl(realModule.name)
     result.options.incl optImportHidden
+  c.unusedImports.add((result, n.info))
 
 proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: bool] =
   var ret: typeof(result)
@@ -281,16 +284,15 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     #echo "set back to ", L
     c.graph.importStack.setLen(L)
     # we cannot perform this check reliably because of
-    # test: modules/import_in_config)
-    when true:
-      if result.info.fileIndex == c.module.info.fileIndex and
-          result.info.fileIndex == n.info.fileIndex:
-        localError(c.config, n.info, "A module cannot import itself")
-    if sfDeprecated in result.flags:
-      if result.constraint != nil:
-        message(c.config, n.info, warnDeprecated, result.constraint.strVal & "; " & result.name.s & " is deprecated")
+    # test: modules/import_in_config) # xxx is that still true?
+    let realModule = result.resolveModuleAlias
+    if realModule == c.module:
+      localError(c.config, n.info, "module '$1' cannot import itself" % c.module.name.s)
+    if sfDeprecated in realModule.flags:
+      if realModule.constraint != nil:
+        message(c.config, n.info, warnDeprecated, realModule.constraint.strVal & "; " & realModule.name.s & " is deprecated")
       else:
-        message(c.config, n.info, warnDeprecated, result.name.s & " is deprecated")
+        message(c.config, n.info, warnDeprecated, realModule.name.s & " is deprecated")
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
     importStmtResult.add newSymNode(result, n.info)
     #newStrNode(toFullPath(c.config, f), n.info)
@@ -303,6 +305,9 @@ proc impMod(c: PContext; it: PNode; importStmtResult: PNode) =
     addDecl(c, m, it.info) # add symbol to symbol table of module
     importAllSymbols(c, m)
     #importForwarded(c, m.ast, emptySet, m)
+    for s in allSyms(c.graph, m): # fixes bug #17510, for re-exported symbols
+      if s.owner != m.resolveModuleAlias:
+        c.exportIndirections.incl((m.id, s.id))
 
 proc evalImport*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkImportStmt, n.info)
