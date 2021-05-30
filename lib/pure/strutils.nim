@@ -1906,7 +1906,7 @@ func find*(s, sub: string, start: Natural = 0, last = 0): int {.rtl,
     else:
       when hasCStringBuiltin:
         if last == 0 and s.len > start:
-          let found = c_strstr(s[start].unsafeAddr, sub)
+          let found = c_strstr(s[start].unsafeAddr.toCstring, sub)
           if not found.isNil:
             result = cast[ByteAddress](found) -% cast[ByteAddress](s.cstring)
           else:
@@ -2372,11 +2372,11 @@ func formatBiggestFloat*(f: BiggestFloat, format: FloatFormatMode = ffDefault,
       frmtstr[3] = '*'
       frmtstr[4] = floatFormatToChar[format]
       frmtstr[5] = '\0'
-      L = c_sprintf(addr buf, addr frmtstr, precision, f)
+      L = c_sprintf(buf.toCstring, frmtstr.toCstring, precision, f)
     else:
       frmtstr[1] = floatFormatToChar[format]
       frmtstr[2] = '\0'
-      L = c_sprintf(addr buf, addr frmtstr, f)
+      L = c_sprintf(buf.toCstring, frmtstr.toCstring, f)
     result = newString(L)
     for i in 0 ..< L:
       # Depending on the locale either dot or comma is produced,

@@ -394,9 +394,11 @@ proc reportUnhandledErrorAux(e: ref Exception) {.nodestroy.} =
     xadd(buf, e.name, e.name.len)
     add(buf, "]\n")
     if onUnhandledException != nil:
-      onUnhandledException($buf.addr)
+      var buf2: string
+      buf2.strAppend(buf[0].addr, L)
+      onUnhandledException(buf2)
     else:
-      showErrorMessage(buf.addr, L)
+      showErrorMessage(buf.toCstring, L)
 
 proc reportUnhandledError(e: ref Exception) {.nodestroy.} =
   if unhandledExceptionHook != nil:

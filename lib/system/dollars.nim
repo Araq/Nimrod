@@ -69,6 +69,60 @@ proc `$`*(x: char): string {.magic: "CharToStr", noSideEffect.}
   ## .. code-block:: Nim
   ##   assert $'c' == "c"
 
+const cLikeTarget = defined(c) or defined(cpp)
+
+when cLikeTarget:
+  proc c_strnlen(s: cstring, maxlen: csize_t): csize_t {.importc: "strnlen", header: "<string.h>".}
+  # see also: `strnlen_s` that also checks for nil, but may incur overhead
+
+proc strAppend*(result: var string, a: ptr char, n: int) {.inline.} =
+  ## append `n` `char`'s from `a` to `result`, efficiently;
+  ## `\0` are insignificant.
+  ## note: should use a Slice[char]
+  # D20200328T022947
+  let old = result.len
+  result.setLen(old + n, isInit = false) # optimized here
+  when not defined(js) and not defined(nimscript):
+    copyMem(result[old].addr.toCstring, a, n)
+  else:
+    let a2 = cast[cstring](a)
+    for i in 0..<n: result[old+i] = a2[i]
+
+proc strAppend*(result: var string, a: cstring) {.inline.} =
+  # TODO: replace `CStrToStr` ?
+  strAppend(result, cast[ptr char](a.unsafeAddr), a.len)
+
+proc strAppend*[R](result: var string, a: array[R, char], stopAt0: bool) {.inline.} =
+  ## append elements of `a` to `result`.
+  ## If `stopAt0` is true we stop right before the first `\0`, if no `\0`,
+  ## we append all elements.
+  ## Compared to `$toCstring(addr(a))`, this prevents buffer overflow bugs at no
+  ## cost since `len(a)` is known.
+  const N = len(a)
+  static: doAssert N > 0
+  var n {.noinit.}: int
+  when cLikeTarget:
+    if stopAt0:
+      n = cast[int](c_strnlen(cast[cstring](a.unsafeAddr), cast[csize_t](N)))
+    else: n = N
+    strAppend(result, cast[ptr char](a.unsafeAddr), n)
+  else:
+    const first = low(a)
+    if stopAt0:
+      n = 0
+      while n < N:
+        if a[first+n] == '\0':
+          break
+        n.inc
+    else: n = N
+    result.setLen(n) # xxx: isInit = false
+    for i in 0..<n: result[i] = a[first + i]
+
+proc toString0*[R](a: array[R, char]): string {.inline.} =
+  ## returns elements of `a`,  stopping before first `\0` if any.
+  ## (hence the `0` in `toString0`).
+  strAppend(result, a, stopAt0 = true)
+
 proc `$`*(x: cstring): string {.magic: "CStrToStr", noSideEffect.}
   ## The stringify operator for a CString argument. Returns `x`
   ## converted to a string.

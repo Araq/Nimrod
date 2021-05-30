@@ -16,9 +16,10 @@ proc reprInt(x: int64): string {.compilerproc.} = return $x
 proc reprFloat(x: float): string {.compilerproc.} = return $x
 
 proc reprPointer(x: pointer): string {.compilerproc.} =
-  result = newString(60)
-  let n = c_sprintf(addr result[0], "%p", x)
-  setLen(result, n)
+  # size: 0x + hexAddr + '\0'
+  var buf {.noinit.}: array[2 + pointer.sizeof * 2 + 1, char]
+  let n = c_sprintf(buf.toCstring, "%p", x)
+  result.strAppend(buf[0].addr, n)
 
 proc reprStrAux(result: var string, s: cstring; len: int) =
   if cast[pointer](s) == nil:

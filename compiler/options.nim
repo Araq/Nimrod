@@ -176,7 +176,10 @@ type
     ideNone, ideSug, ideCon, ideDef, ideUse, ideDus, ideChk, ideMod,
     ideHighlight, ideOutline, ideKnown, ideMsg, ideProject
 
-  Feature* = enum  ## experimental features; DO NOT RENAME THESE!
+  Feature* = enum
+    ## experimental featuress
+    ## do not rename these since they're exposed to users via `--experimental:foo`
+    ## deprecated features start with `legacy`.
     implicitDeref,
     dotOperators,
     callOperator,
@@ -194,7 +197,8 @@ type
     vmopsDanger,
     strictFuncs,
     views,
-    strictNotNil
+    strictNotNil,
+    legacyImplicitCstringConv,
 
   LegacyFeature* = enum
     allowSemcheckedAstModification,
@@ -382,6 +386,14 @@ proc assignIfDefault*[T](result: var T, val: T, def = default(T)) =
 template setErrorMaxHighMaybe*(conf: ConfigRef) =
   ## do not stop after first error (but honor --errorMax if provided)
   assignIfDefault(conf.errorMax, high(int))
+
+template toSet(a: typedesc[enum]): untyped = {a.low..a.high}
+
+const
+  FeatureDepr* = {legacyImplicitCstringConv}
+    # can't use `LegacyFeature` because we want to be able to localize
+    # to a context, eg {.push experimental: "legacyImplicitCstringConv".} .. {.pop.}
+  FeatureExp* = Feature.toSet - FeatureDepr
 
 proc setNoteDefaults*(conf: ConfigRef, note: TNoteKind, enabled = true) =
   template fun(op) =
