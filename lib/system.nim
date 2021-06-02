@@ -2374,7 +2374,18 @@ when notJSnotNims and hasAlloc:
     include "system/sysstr"
   {.pop.}
 
-  include "system/strmantle"
+  from std/private/strmantle import addInt, addFloat
+  export addInt, addFloat
+
+  when defined(gcDestructors):
+    proc GC_getStatistics*(): string =
+      result = "[GC] total memory: "
+      result.addInt getTotalMem()
+      result.add "\n[GC] occupied memory: "
+      result.addInt getOccupiedMem()
+      result.add '\n'
+      #"[GC] cycle collections: " & $gch.stat.cycleCollections & "\n" &
+
   include "system/assign"
 
   when not defined(nimV2):
