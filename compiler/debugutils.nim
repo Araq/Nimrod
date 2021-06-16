@@ -17,3 +17,5 @@ proc onNewConfigRef*(conf: ConfigRef) {.inline.} =
 proc getConfigRef*(): ConfigRef =
   ## nil, if -d:nimDebugUtils wasn't specified
   result = conf0
+
+include timn/exp/nim_compiler_debugutils

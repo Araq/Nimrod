@@ -473,6 +473,7 @@ proc isDefined*(conf: ConfigRef; symbol: string): bool
 
 when defined(nimDebugUtils):
   import debugutils
+  export debugutils
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.selectedGC = gcRefc

@@ -2189,6 +2189,22 @@ proc myClose(graph: ModuleGraph; c: PPassContext, n: PNode): PNode =
 
 const evalPass* = makePass(myOpen, myProcess, myClose)
 
+proc fixupVmArtifacts(n: PNode): PNode =
+  result = n
+  case result.kind
+  of nkTupleConstr:
+    if result.typ.n != nil and result.typ.n.kind == nkRecList:
+      for i in 0..<result.len:
+        let ni = result[i]
+        if ni.kind != nkExprColonExpr:
+          let n2 = newNodeIT(nkExprColonExpr, ni.info, ni.typ)
+          n2.add result.typ.n[i]
+          n2.add ni
+          result[i] = n2
+  else:
+    for i in 0..<result.safeLen: # xxx support mitems(result)
+      result[i] = fixupVmArtifacts(result[i])
+
 proc evalConstExprAux(module: PSym; idgen: IdGenerator;
                       g: ModuleGraph; prc: PSym, n: PNode,
                       mode: TEvalMode): PNode =
@@ -2206,6 +2222,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   newSeq(tos.slots, c.prc.regInfo.len)
   #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)
   result = rawExecute(c, start, tos).regToNode
+  result = fixupVmArtifacts(result)
   if result.info.col < 0: result.info = n.info
   c.mode = oldMode
 
