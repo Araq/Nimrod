@@ -263,18 +263,16 @@ proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions) =
   if isTurnedOn(c, n): resOptions.incl op
   else: resOptions.excl op
 
-proc pragmaNoForward(c: PContext, n: PNode; flag=sfNoForward) =
+proc pragmaNoForward(c: PContext, n: PNode; word: TSpecialWord, flag: TSymFlag) =
   if isTurnedOn(c, n):
     incl(c.module.flags, flag)
     c.features.incl codeReordering
   else:
     excl(c.module.flags, flag)
     # c.features.excl codeReordering
-
   # deprecated as of 0.18.1
-  message(c.config, n.info, warnDeprecated,
-          "use {.experimental: \"codeReordering\".} instead; " &
-          (if flag == sfNoForward: "{.noForward.}" else: "{.reorder.}") & " is deprecated")
+  warningDeprecated(c.config, n.info, "use {.experimental: \"codeReordering\".} instead; $# is deprecated" % $word)
+    # xxx but it's not quite the same; `sfNoForward`, `sfReorder` and `codeReordering` all differ subtely.
 
 proc processCallConv(c: PContext, n: PNode) =
   if n.kind in nkPragmaCallKinds and n.len == 2 and n[1].kind == nkIdent:
@@ -721,7 +719,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode) =
     if n.kind in nkPragmaCallKinds and n.len == 2:
       let dest = qualifiedLookUp(c, n[1], {checkUndeclared})
       if dest == nil or dest.kind in routineKinds:
-        localError(c.config, n.info, warnUser, "the .deprecated pragma is unreliable for routines")
+        localError(c.config, n.info, warnUser, "the .deprecated pragma is unreliable for routines because it can't apply to a specific overload")
       let src = considerQuotedIdent(c, n[0])
       let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
       incl(alias.flags, sfExported)
@@ -898,9 +896,10 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
       of wThreadVar:
         noVal(c, it)
         incl(sym.flags, {sfThread, sfGlobal})
-      of wDeadCodeElimUnused: discard  # deprecated, dead code elim always on
-      of wNoForward: pragmaNoForward(c, it)
-      of wReorder: pragmaNoForward(c, it, flag = sfReorder)
+      of wDeadCodeElimUnused:
+        warningDeprecated(c.config, it.info, "'$#' is deprecated, now a noop" % $wDeadCodeElimUnused)
+      of wNoForward: pragmaNoForward(c, it, k, sfNoForward)
+      of wReorder: pragmaNoForward(c, it, k, sfReorder)
       of wMagic: processMagic(c, it, sym)
       of wCompileTime:
         noVal(c, it)
@@ -1192,12 +1191,11 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
           localError(c.config, n.info, "'experimental' pragma only valid as toplevel statement or in a 'push' environment")
         processExperimental(c, it)
       of wThis:
+        warningDeprecated(c.config, n.info, "the '.this' pragma is deprecated")
         if it.kind in nkPragmaCallKinds and it.len == 2:
           c.selfName = considerQuotedIdent(c, it[1])
-          message(c.config, n.info, warnDeprecated, "the '.this' pragma is deprecated")
         elif it.kind == nkIdent or it.len == 1:
           c.selfName = getIdent(c.cache, "self")
-          message(c.config, n.info, warnDeprecated, "the '.this' pragma is deprecated")
         else:
           localError(c.config, it.info, "'this' pragma is allowed to have zero or one arguments")
       of wNoRewrite:

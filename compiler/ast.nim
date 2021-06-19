@@ -302,6 +302,9 @@ type
 
   TSymFlags* = set[TSymFlag]
 
+# xxx avoid conflating flags like this which is error prone, unless we can prove that
+# increasing number of flags actually increases compile times, which IIRC isn't the case.
+
 const
   sfNoInit* = sfMainModule       # don't generate code to init the variable
 
@@ -319,6 +322,10 @@ const
 
   sfNoForward* = sfRegister
     # forward declarations are not required (per module)
+    # This is used with 2 different meanings for types and for modules.
+    # This relates to experimental:reordering but isn't quite the same, see
+    # some description discussing `.noForward` in manual.
+
   sfReorder* = sfForward
     # reordering pass is enabled
 
