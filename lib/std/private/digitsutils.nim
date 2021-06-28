@@ -1,3 +1,5 @@
+proc c_memcpy(a, b: pointer, size: csize_t): pointer {.importc: "memcpy", header: "<string.h>", discardable.}
+
 const
   trailingZeros100: array[100, int8] = [2'i8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
@@ -32,57 +34,91 @@ proc utoa2Digits*(buf: var openArray[char]; pos: int; digits: uint32) {.inline.}
   assert(digits <= 99)
   buf[pos] = digits100[2 * digits]
   buf[pos+1] = digits100[2 * digits + 1]
+  # xxx use `c_memcpy`; likewise in dragonbox, after measuring performance.
   #copyMem(buf, unsafeAddr(digits100[2 * digits]), 2 * sizeof((char)))
 
 proc trailingZeros2Digits*(digits: uint32): int32 {.inline.} =
   assert(digits <= 99)
   return trailingZeros100[digits]
 
-func digits10*(num: uint64): int {.noinline.} =
-  if num < 10'u64:
-    result = 1
-  elif num < 100'u64:
-    result = 2
-  elif num < 1_000'u64:
-    result = 3
-  elif num < 10_000'u64:
-    result = 4
-  elif num < 100_000'u64:
-    result = 5
-  elif num < 1_000_000'u64:
-    result = 6
-  elif num < 10_000_000'u64:
-    result = 7
-  elif num < 100_000_000'u64:
-    result = 8
-  elif num < 1_000_000_000'u64:
-    result = 9
-  elif num < 10_000_000_000'u64:
-    result = 10
-  elif num < 100_000_000_000'u64:
-    result = 11
-  elif num < 1_000_000_000_000'u64:
-    result = 12
+proc firstPow10(n: int): uint64 {.compileTime.} =
+  result = 1
+  for i in 1..<n: result *= 10
+
+func digits10*(x: uint64): int {.inline.} =
+  ## Returns number of digits of `$x`
+  if x >= firstPow10(11): # 1..10, 11..20
+    if x >= firstPow10(16): # 11..15, 16..20
+      if x >= firstPow10(18): # 16..17, 18..20
+        if x >= firstPow10(19): # 18, 19..20
+          if x >= firstPow10(20): 20 # 19, 20
+          else: 19
+        else: 18
+      elif x >= firstPow10(17): 17 # 16, 17
+      else: 16
+    elif x >= firstPow10(13): # 11..12, 13..15
+      if x >= firstPow10(14): # 13, 14..15
+        if x >= firstPow10(15): 15 # 14, 15
+        else: 14
+      else: 13
+    elif x >= firstPow10(12): 12 # 11, 12
+    else: 11
+  elif x >= firstPow10(6): # 1..5, 6..10
+    if x >= firstPow10(8): # 6..7, 8..10
+      if x >= firstPow10(9): # 8, 9..10
+        if x >= firstPow10(10): 10 # 9, 10
+        else: 9
+      else: 8
+    elif x >= firstPow10(7): 7 # 6, 7
+    else: 6
+  elif x >= firstPow10(3): # 1..2, 3..5
+    if x >= firstPow10(4): # 3, 4..5
+      if x >= firstPow10(5): 5 # 4, 5
+      else: 4
+    else: 3
+  elif x >= firstPow10(2): 2 # 1, 2
+  else: 1
+
+func digits10*(x: uint32): int {.inline.} =
+  ## Returns number of digits of `$x`
+  if x >= firstPow10(6): # 1..5, 6..10
+    if x >= firstPow10(8): # 6..7, 8..10
+      if x >= firstPow10(9): # 8, 9..10
+        if x >= firstPow10(10): 10 # 9, 10
+        else: 9
+      else: 8
+    elif x >= firstPow10(7): 7 # 6, 7
+    else: 6
+  elif x >= firstPow10(3): # 1..2, 3..5
+    if x >= firstPow10(4): # 3, 4..5
+      if x >= firstPow10(5): 5 # 4, 5
+      else: 4
+    else: 3
+  elif x >= firstPow10(2): 2 # 1, 2
+  else: 1
+
+template addIntImpl2[T](ret: T, num: uint64, length: int, start: int) =
+  var i = length - 2
+  var x = num
+  while i >= 0:
+    let xi = (x mod 100) shl 1
+    x = x div 100
+    template fallback =
+      ret[i + start] = digits100[xi]
+      ret[i+1 + start] = digits100[xi+1]
+    when nimvm: fallback()
+    else:
+      when defined(nimHasDragonBox): # pending bootstrap >= 1.4.0
+        c_memcpy ret[i + start].addr, digits100[xi].unsafeAddr, 2
+      else:
+        fallback()
+    i = i - 2
+  if i == - 1: ret[start] = chr(ord('0') + x)
+
+template addIntImpl*(ret: var string, num: uint64, length: int, start: int) =
+  # pending bug #15952, use instead `addIntImpl(result: var openArray[char], num: uint64)`
+  when nimvm:
+    addIntImpl2(ret, num, length, start)
   else:
-    result = 12 + digits10(num div 1_000_000_000_000'u64)
-
-template numToString*(result: var string, origin: uint64, length: int) =
-  var num = origin
-  var next = length - 1
-  const nbatch = 100
-
-  while num >= nbatch:
-    let originNum = num
-    num = num div nbatch
-    let index = (originNum - num * nbatch) shl 1
-    result[next] = digits100[index + 1]
-    result[next - 1] = digits100[index]
-    dec(next, 2)
-
-  # process last 1-2 digits
-  if num < 10:
-    result[next] = chr(ord('0') + num)
-  else:
-    let index = num * 2
-    result[next] = digits100[index + 1]
-    result[next - 1] = digits100[index]
+    let ret2 = cast[ptr UncheckedArray[char]](result[result.len - length].addr)
+    addIntImpl2(ret2, num, length, 0)
