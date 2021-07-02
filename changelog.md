@@ -93,6 +93,7 @@
 
 - Renamed `-d:nimCompilerStackraceHints` to `-d:nimCompilerStacktraceHints`.
 
+- Now parsexxxInt, parsexxx and fromxxx(xxx stands for Hex, Bin, Oct) check overflow. Use `-d:nimLegacyParseInts` to switch to old behaviour.
 
 ## Standard library additions and changes
 

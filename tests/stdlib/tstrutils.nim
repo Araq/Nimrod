@@ -4,7 +4,52 @@ discard """
 
 import std/strutils
 from stdtest/testutils import disableVm
+import macros
 # xxx each instance of `disableVm` and `when not defined js:` should eventually be fixed
+
+template disableJsAndI386(body: untyped) =
+  when not defined(js) and not defined(i386):
+    body
+
+macro fnTest(base: string, fn: proc (x: string): int, expected: int64, raises: static bool): untyped =
+  var prefix: string
+  case fn.strVal
+  of "parseHexInt":
+    prefix = "0x"
+  of "parseOctInt":
+    prefix = "0o"
+  of "parseBinInt":
+    prefix = "0b"
+  else: doAssert false
+
+  if not `raises`:
+    result = quote do:
+      doAssert `fn`(`base`) == `expected`
+      doAssert `fn`(`prefix` & `base`) == `expected`
+  else:
+    result = quote do:
+      doAssertRaises(ValueError):
+        echo `fn`(`base`)
+      doAssertRaises(ValueError):
+        echo `fn`(`prefix` & `base`)
+
+template hexTest(base: string, expected: int64) =
+  fnTest(base, parseHexInt, expected, false)
+
+template octTest(base: string, expected: int64) =
+  fnTest(base, parseOctInt, expected, false)
+
+template binTest(base: string, expected: int64) =
+  fnTest(base, parseBinInt, expected, false)
+
+template hexRaiseTest(base: string) =
+  fnTest(base, parseHexInt, -1, true)
+
+template octRaiseTest(base: string) =
+  fnTest(base, parseOctInt, -1, true)
+
+template binRaiseTest(base: string) =
+  fnTest(base, parseBinInt, -1, true)
 
 template rejectParse(e) =
   try:
@@ -816,6 +861,119 @@ bar
     doAssert s.endsWith('f')
     doAssert s.endsWith('a') == false
     doAssert s.endsWith('\0') == false
+
+
+  block:
+    hexTest("000000000000000000000000000000000000000000000000", 0)
+    hexTest("000000000000000000000000000000000000000000000001", 1)
+    hexTest("0", 0)
+    hexTest("1", 1)
+    hexTest("0_0_0_F", 15)
+    hexTest("00000000000000F", 15)
+    hexTest("0000000000000000000000000F", 15)
+    hexTest("00_0000_0000_0000_0000_0000_000F", 15)
+    doAssert parseHexInt("#000000000000000000000000000000000000000000000000") == 0
+    doAssert parseHexInt("#FFFF") == 65535
+
+    octTest("000000000000000000000000000000000000000000000000", 0)
+    octTest("000000000000000000000000000000000000000000000001", 1)
+    octTest("0", 0)
+    octTest("1", 1)
+
+    binTest("000000000000000000000000000000000000000000000000", 0)
+    binTest("000000000000000000000000000000000000000000000001", 1)
+    binTest("0", 0)
+    binTest("1", 1)
+    binTest("11_0101", 53)
+    binTest("111", 7)
+
+  block:
+    let s = "0x_1235_8df6"
+    doAssert fromHex[int](s) == 305499638
+    doAssertRaises(ValueError):
+      echo fromHex[int8](s)
+    doAssertRaises(ValueError):
+      echo fromHex[int8](s)
+    doAssertRaises(ValueError):
+      echo fromHex[uint8](s)
+    doAssertRaises(ValueError):
+      echo s.fromHex[:int16]
+
+  block:
+    let s = "0o_123_456_777"
+    doAssert fromOct[int](s) == 21913087
+    doAssertRaises(ValueError):
+      echo fromOct[int8](s)
+    doAssertRaises(ValueError):
+      echo fromOct[int8](s)
+    doAssertRaises(ValueError):
+      echo fromOct[uint8](s)
+    doAssertRaises(ValueError):
+      echo s.fromOct[:int16]
+    doAssert s.fromOct[:uint64] == 21913087'u64
+
+  block:
+    let s = "0b_0100_1000_1000_1000_1110_1110_1001_1001"
+    doAssert fromBin[int](s) == 1216933529
+    doAssertRaises(ValueError):
+      echo fromBin[int8](s)
+    doAssertRaises(ValueError):
+      echo fromBin[int8](s)
+    doAssertRaises(ValueError):
+      echo fromBin[uint8](s)
+    doAssertRaises(ValueError):
+      echo s.fromBin[:int16]
+    doAssert s.fromBin[:uint64] == 1216933529'u64
+
+  disableJsAndI386:
+    block:
+      block: # hex
+        hexTest("1000000000000000", 1152921504606846976)
+        hexTest("2000000000000000", 2305843009213693952)
+        hexTest("FFFFFFFFFFFFFFF0", -16)
+        hexTest("FFFFFFFFFFFFFFFF", -1)
+        hexTest("FFFFFFFFFFFFFFF", 1152921504606846975)
+        hexTest("AA_BB_CC_DD", 2864434397)
+
+
+        hexRaiseTest("FF00FFFFFFFFFFFFFFFFFF")
+        hexRaiseTest("FF00FFFFFFFFFFFFFFFFFF")
+        hexRaiseTest("10000FFFFFFFFFFFFFFFFFF")
+        hexRaiseTest("10000000000000000000000")
+        hexRaiseTest("1_0000_0000_0000_0000")
+        hexRaiseTest("00_1000_0000_0000_0000_0000_000F")
+
+      block: # oct
+        octTest("1777777777777777777777", -1)
+        octTest("177777777777777777777", 2305843009213693951)
+        octTest("0_77777777777777777777", 1152921504606846975)
+        octTest("00_77777777777777777777", 1152921504606846975)
+
+        octTest("0_177777777777777777777", 2305843009213693951)
+        octTest("0000_177777777777777777777", 2305843009213693951)
+        octTest("0777777777777777777777", 9223372036854775807)
+        octTest("00777777777777777777777", 9223372036854775807)
+        octTest("00___77_77777_777777_777_77777", 9223372036854775807)
+
+        octRaiseTest("2777777777777777777777")
+        octRaiseTest("10000777777777777777777777")
+        octRaiseTest("20000777777777777777777777")
+        octRaiseTest("70000777777777777777777777")
+        octRaiseTest("0000002777777777777777777777")
+        octRaiseTest("10_777777777777777777777")
+        octRaiseTest("100_0777777777777777777777")
+        octRaiseTest("000_000_277_777_7777777777777777")
+        octRaiseTest("00_1000_0000_0000_0000_0000_0007")
+
+      block: # bin
+        binTest(repeat("11111111", 8), -1)
+        binTest("00" & repeat("11111111", 8), -1)
+        binTest("0111_1111" & repeat("11111111", 7), 9223372036854775807)
+        binTest(repeat("0001", 16), 1229782938247303441)
+
+        binRaiseTest(repeat("0001", 17))
+        binRaiseTest("1" & repeat("0000_0000", 8))
+
 
 static: main()
 main()
