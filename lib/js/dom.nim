@@ -1479,16 +1479,20 @@ else:
   proc createTextNode*(d: Document, identifier: cstring): Node {.importcpp.}
   proc createComment*(d: Document, data: cstring): Node {.importcpp.}
 
-proc setTimeout*(action: proc(); ms: int): TimeOut {.importc, nodecl.}
+proc setTimeout*[T](action: proc (): T; ms: int): TimeOut {.importc, nodecl.}
+proc setTimeout*(action: proc (); ms: int): TimeOut {.importc, nodecl.}
 proc clearTimeout*(t: TimeOut) {.importc, nodecl.}
 
 {.push importcpp.}
 
 # EventTarget "methods"
-proc addEventListener*(et: EventTarget, ev: cstring, cb: proc(ev: Event), useCapture: bool = false)
-proc addEventListener*(et: EventTarget, ev: cstring, cb: proc(ev: Event), options: AddEventListenerOptions)
+proc addEventListener*[T](et: EventTarget, ev: cstring, cb: proc (ev: Event): T, useCapture: bool = false)
+proc addEventListener*[T](et: EventTarget, ev: cstring, cb: proc (ev: Event): T, options: AddEventListenerOptions)
+proc addEventListener*(et: EventTarget, ev: cstring, cb: proc (ev: Event), useCapture: bool = false)
+proc addEventListener*(et: EventTarget, ev: cstring, cb: proc (ev: Event), options: AddEventListenerOptions)
 proc dispatchEvent*(et: EventTarget, ev: Event)
-proc removeEventListener*(et: EventTarget; ev: cstring; cb: proc(ev: Event))
+proc removeEventListener*[T](et: EventTarget; ev: cstring; cb: proc (ev: Event): T)
+proc removeEventListener*(et: EventTarget; ev: cstring; cb: proc (ev: Event))
 
 # Window "methods"
 proc alert*(w: Window, msg: cstring)
@@ -1521,10 +1525,13 @@ proc routeEvent*(w: Window, event: Event)
 proc scrollBy*(w: Window, x, y: int)
 proc scrollTo*(w: Window, x, y: int)
 proc setInterval*(w: Window, code: cstring, pause: int): ref Interval
+proc setInterval*[T](w: Window, function: proc (): T, pause: int): ref Interval
 proc setInterval*(w: Window, function: proc (), pause: int): ref Interval
 proc setTimeout*(w: Window, code: cstring, pause: int): ref TimeOut
+proc setTimeout*[T](w: Window, function: proc (): T, pause: int): ref Interval
 proc setTimeout*(w: Window, function: proc (), pause: int): ref Interval
 proc stop*(w: Window)
+proc requestAnimationFrame*[T](w: Window, function: proc (time: float): T): int
 proc requestAnimationFrame*(w: Window, function: proc (time: float)): int
 proc cancelAnimationFrame*(w: Window, id: int)
 
@@ -1547,7 +1554,9 @@ proc scrollIntoView*(n: Node, options: ScrollIntoViewOptions)
 proc setAttribute*(n: Node, name, value: cstring)
 proc setAttributeNode*(n: Node, attr: Node)
 proc querySelector*(n: Node, selectors: cstring): Element
+proc querySelector*(n: Node, selectors: seq[cstring]): Element
 proc querySelectorAll*(n: Node, selectors: cstring): seq[Element]
+proc querySelectorAll*(n: Node, selectors: seq[cstring]): seq[Element]
 proc compareDocumentPosition*(n: Node, otherNode:Node): int
 proc lookupPrefix*(n: Node): cstring
 proc lookupNamespaceURI*(n: Node): cstring
@@ -1581,7 +1590,9 @@ proc routeEvent*(d: Document, event: Event)
 proc write*(d: Document, text: cstring)
 proc writeln*(d: Document, text: cstring)
 proc querySelector*(d: Document, selectors: cstring): Element
+proc querySelector*(d: Document, selectors: seq[cstring]): Element
 proc querySelectorAll*(d: Document, selectors: cstring): seq[Element]
+proc querySelectorAll*(d: Document, selectors: seq[cstring]): seq[Element]
 
 # Element "methods"
 proc blur*(e: Element)
