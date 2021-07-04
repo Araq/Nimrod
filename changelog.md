@@ -339,6 +339,8 @@
 
 - Added `dom.scrollIntoView` proc with options
 
+- add `std/exceptions` containing `enforce`
+
 ## Language changes
 
 - `nimscript` now handles `except Exception as e`.

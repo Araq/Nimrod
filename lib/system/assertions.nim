@@ -2,24 +2,13 @@
 ##
 ## **Note:** This module is reexported by `system` and thus does not need to be
 ## imported directly (with `system/assertions`).
+##
+## See also: `std/exceptions`
 
 when not declared(sysFatal):
   include "system/fatal"
 
 import std/private/miscdollars
-# ---------------------------------------------------------------------------
-# helpers
-
-type InstantiationInfo = tuple[filename: string, line: int, column: int]
-
-proc `$`(x: int): string {.magic: "IntToStr", noSideEffect.}
-proc `$`(info: InstantiationInfo): string =
-  # The +1 is needed here
-  # instead of overriding `$` (and changing its meaning), consider explicit name.
-  result = ""
-  result.toLocation(info.filename, info.line, info.column + 1)
-
-# ---------------------------------------------------------------------------
 
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
@@ -94,6 +83,7 @@ template doAssertRaises*(exception: typedesc, code: untyped) =
   const begin = "expected raising '" & astToStr(exception) & "', instead"
   const msgEnd = " by: " & astToStr(code)
   template raisedForeign = raiseAssert(begin & " raised foreign exception" & msgEnd)
+  mixin `$` # for `tests/test_nimscript.nims` (import assertions appears before dollars)
   when Exception is exception:
     try:
       if true:
