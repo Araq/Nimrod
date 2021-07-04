@@ -81,6 +81,7 @@ export toLower, toUpper
 include "system/inclrtl"
 import std/private/since
 from std/private/strimpl import cmpIgnoreStyleImpl, cmpIgnoreCaseImpl, startsWithImpl, endsWithImpl
+import std/strbasics
 
 
 const
@@ -2050,52 +2051,11 @@ func contains*(s: string, chars: set[char]): bool =
   ## * `find func<#find,string,set[char],Natural,int>`_
   return find(s, chars) >= 0
 
-func replace*(s, sub: string, by = ""): string {.rtl,
-    extern: "nsuReplaceStr".} =
-  ## Replaces every occurrence of the string `sub` in `s` with the string `by`.
-  ##
-  ## See also:
-  ## * `find func<#find,string,string,Natural,int>`_
-  ## * `replace func<#replace,string,char,char>`_ for replacing
-  ##   single characters
-  ## * `replaceWord func<#replaceWord,string,string,string>`_
-  ## * `multiReplace func<#multiReplace,string,varargs[]>`_
-  result = ""
-  let subLen = sub.len
-  if subLen == 0:
-    result = s
-  elif subLen == 1:
-    # when the pattern is a single char, we use a faster
-    # char-based search that doesn't need a skip table:
-    let c = sub[0]
-    let last = s.high
-    var i = 0
-    while true:
-      let j = find(s, c, i, last)
-      if j < 0: break
-      add result, substr(s, i, j - 1)
-      add result, by
-      i = j + subLen
-    # copy the rest:
-    add result, substr(s, i)
-  else:
-    var a {.noinit.}: SkipTable
-    initSkipTable(a, sub)
-    let last = s.high
-    var i = 0
-    while true:
-      let j = find(a, s, sub, i, last)
-      if j < 0: break
-      add result, substr(s, i, j - 1)
-      add result, by
-      i = j + subLen
-    # copy the rest:
-    add result, substr(s, i)
-
-func replace*(s: string, sub, by: char): string {.rtl,
+func replace*(s: string, sub, by: char, max = -1): string {.rtl,
     extern: "nsuReplaceChar".} =
-  ## Replaces every occurrence of the character `sub` in `s` with the character
-  ## `by`.
+  ## Replaces `max` occurrences of the character `sub` in `s` with
+  ## the character `by`.
+  ## If `max == -1`, it replaces all occurrences.
   ##
   ## Optimized version of `replace <#replace,string,string,string>`_ for
   ## characters.
@@ -2104,43 +2064,115 @@ func replace*(s: string, sub, by: char): string {.rtl,
   ## * `find func<#find,string,char,Natural,int>`_
   ## * `replaceWord func<#replaceWord,string,string,string>`_
   ## * `multiReplace func<#multiReplace,string,varargs[]>`_
-  result = newString(s.len)
-  var i = 0
-  while i < s.len:
-    if s[i] == sub: result[i] = by
-    else: result[i] = s[i]
-    inc(i)
+  runnableExamples:
+    assert "valid variable name".replace(' ', '_') == "valid_variable_name"
+    assert "Faabar!".replace('a', 'o', 2) == "Foobar!"
+  result = newStringOfCap(s.len)
+  var
+    i = 0
+    occLeft = max
+  while i <= s.high:
+    if occLeft == 0: break
+    if s[i] == sub:
+      result.add by
+      if occLeft > 0: dec occLeft
+    else:
+      result.add s[i]
+    inc i
+  if occLeft == 0:
+    # copy the rest:
+    result.add s.substr(i)
 
-func replaceWord*(s, sub: string, by = ""): string {.rtl,
+# consider adding:  `func replace*(s: string, subs: set[char], by: char, max = -1): string`
+
+func replace*(s, sub: string, by = "", max = -1): string {.rtl,
+    extern: "nsuReplaceStr".} =
+  ## Replaces `max` occurrences of the string `sub` in `s` with the
+  ## string `by`.
+  ## If `max` is set to `-1`, it replaces all occurrences.
+  ##
+  ## See also:
+  ## * `find func<#find,string,string,Natural,int>`_
+  ## * `replace func<#replace,string,char,char>`_ for replacing
+  ##   single characters
+  ## * `replaceWord func<#replaceWord,string,string,string>`_
+  ## * `multiReplace func<#multiReplace,string,varargs[]>`_
+  runnableExamples:
+    assert "FooFooBaz".replace("Foo", "Bar") == "BarBarBaz"
+    assert "BarBarBaz".replace("Bar", "Foo", 1) == "FooBarBaz"
+  result = ""
+  let subLen = sub.len
+  if subLen == 0: result = s
+  elif subLen == 1:
+    let subChar = sub[0]
+    # when the pattern is a single char, we use a faster
+    # char-based search that doesn't need a skip table:
+    var
+      i = 0
+      occLeft = max
+    while true:
+      let j = s.find(subChar, i)
+      if j == -1 or occLeft == 0: break
+      if occLeft > 0: dec occLeft
+
+      result.add s.substr(i, j - 1)
+      result.add by
+      i = j + subLen
+    # copy the rest:
+    result.add s.substr(i)
+  else:
+    var a {.noinit.}: SkipTable
+    initSkipTable(a, sub)
+    var
+      i = 0
+      occLeft = max
+    while true:
+      let j = find(a, s, sub, i)
+      if j == -1 or occLeft == 0: break
+      if occLeft > 0: dec occLeft
+      result.add s.toOpenArray(i, j - 1)
+      result.add by
+      i = j + subLen
+    # copy the rest:
+    result.add s.substr(i)
+
+func replaceWord*(s, sub: string, by = "", max = -1): string {.rtl,
     extern: "nsuReplaceWord".} =
-  ## Replaces every occurrence of the string `sub` in `s` with the string `by`.
+  ## Replaces `max` occurrences of the string `sub` in `s` with the
+  ## string `by`.
+  ## If `max` is set to `-1`, it replaces all occurrences.
   ##
   ## Each occurrence of `sub` has to be surrounded by word boundaries
   ## (comparable to `\b` in regular expressions), otherwise it is not
   ## replaced.
-  if sub.len == 0: return s
-  const wordChars = {'a'..'z', 'A'..'Z', '0'..'9', '_', '\128'..'\255'}
-  var a {.noinit.}: SkipTable
+  runnableExamples:
+    assert "Hello, Helloworld".replaceWord("Hello", "Hi") == "Hi, Helloworld"
+    assert "no, yes, nono, no, no?".replaceWord("no", "yes", 2) == "yes, yes, nono, yes, no?"
   result = ""
-  initSkipTable(a, sub)
-  var i = 0
-  let last = s.high
-  let sublen = sub.len
-  if sublen > 0:
+  let subLen = sub.len
+  if subLen == 0: result = s
+  else:
+    const wordChars = {'a'..'z', 'A'..'Z', '0'..'9', '_', '\128'..'\255'}
+    var a {.noinit.}: SkipTable
+    initSkipTable(a, sub)
+    var
+      i = 0
+      occLeft = max
     while true:
-      var j = find(a, s, sub, i, last)
-      if j < 0: break
-      # word boundary?
+      var j = find(a, s, sub, i)
+      if j == -1 or occLeft == 0: break
+      # check for word boundaries
       if (j == 0 or s[j-1] notin wordChars) and
-          (j+sub.len >= s.len or s[j+sub.len] notin wordChars):
-        add result, substr(s, i, j - 1)
-        add result, by
-        i = j + sublen
+         (j+sub.len >= s.len or s[j+sub.len] notin wordChars):
+        result.add s.substr(i, j - 1)
+        result.add by
+        i = j + subLen
+        if occLeft > 0: dec occLeft
       else:
-        add result, substr(s, i, j)
+        result.add s.substr(i, j)
         i = j + 1
     # copy the rest:
-    add result, substr(s, i)
+    result.add s.substr(i)
 
 func multiReplace*(s: string, replacements: varargs[(string, string)]): string =
   ## Same as replace, but specialized for doing multiple replacements in a single
@@ -2174,7 +2206,6 @@ func multiReplace*(s: string, replacements: varargs[(string, string)]): string =
       # copy current character from s
       add result, s[i]
       inc(i)
-
 
 
 func insertSep*(s: string, sep = '_', digits = 3): string {.rtl,
