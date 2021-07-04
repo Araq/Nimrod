@@ -396,7 +396,7 @@ proc hasKeyOrPut*[A, B](t: var Table[A, B], key: A, val: B): bool =
 
   hasKeyOrPutImpl(enlarge)
 
-proc getOrDefault*[A, B](t: Table[A, B], key: A): B =
+template getOrDefault*[A, B](t: Table[A, B], key: A): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`. Otherwise, the
   ## default initialization value for type `B` is returned (e.g. 0 for any
   ## integer type).
@@ -412,10 +412,9 @@ proc getOrDefault*[A, B](t: Table[A, B], key: A): B =
     let a = {'a': 5, 'b': 9}.toTable
     doAssert a.getOrDefault('a') == 5
     doAssert a.getOrDefault('z') == 0
+  getOrDefaultImpl(t, key, default(t.B))
 
-  getOrDefaultImpl(t, key)
-
-proc getOrDefault*[A, B](t: Table[A, B], key: A, default: B): B =
+template getOrDefault*[A, B](t: Table[A, B], key: A, default: B): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`.
   ## Otherwise, `default` is returned.
   ##
@@ -927,7 +926,7 @@ proc hasKeyOrPut*[A, B](t: var TableRef[A, B], key: A, val: B): bool =
 
   t[].hasKeyOrPut(key, val)
 
-proc getOrDefault*[A, B](t: TableRef[A, B], key: A): B =
+template getOrDefault*[A, B](t: TableRef[A, B], key: A): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`. Otherwise, the
   ## default initialization value for type `B` is returned (e.g. 0 for any
   ## integer type).
@@ -944,9 +943,9 @@ proc getOrDefault*[A, B](t: TableRef[A, B], key: A): B =
     doAssert a.getOrDefault('a') == 5
     doAssert a.getOrDefault('z') == 0
 
-  getOrDefault(t[], key)
+  getOrDefault(t[], key, default(t.B))
 
-proc getOrDefault*[A, B](t: TableRef[A, B], key: A, default: B): B =
+template getOrDefault*[A, B](t: TableRef[A, B], key: A, default: B): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`.
   ## Otherwise, `default` is returned.
   ##
@@ -1430,7 +1429,7 @@ proc hasKeyOrPut*[A, B](t: var OrderedTable[A, B], key: A, val: B): bool =
 
   hasKeyOrPutImpl(enlarge)
 
-proc getOrDefault*[A, B](t: OrderedTable[A, B], key: A): B =
+template getOrDefault*[A, B](t: OrderedTable[A, B], key: A): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`. Otherwise, the
   ## default initialization value for type `B` is returned (e.g. 0 for any
   ## integer type).
@@ -1447,9 +1446,9 @@ proc getOrDefault*[A, B](t: OrderedTable[A, B], key: A): B =
     doAssert a.getOrDefault('a') == 5
     doAssert a.getOrDefault('z') == 0
 
-  getOrDefaultImpl(t, key)
+  getOrDefaultImpl(t, key, default(t.B))
 
-proc getOrDefault*[A, B](t: OrderedTable[A, B], key: A, default: B): B =
+template getOrDefault*[A, B](t: OrderedTable[A, B], key: A, default: B): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`.
   ## Otherwise, `default` is returned.
   ##
@@ -1916,7 +1915,7 @@ proc hasKeyOrPut*[A, B](t: var OrderedTableRef[A, B], key: A, val: B): bool =
 
   result = t[].hasKeyOrPut(key, val)
 
-proc getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A): B =
+template getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`. Otherwise, the
   ## default initialization value for type `B` is returned (e.g. 0 for any
   ## integer type).
@@ -1933,9 +1932,9 @@ proc getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A): B =
     doAssert a.getOrDefault('a') == 5
     doAssert a.getOrDefault('z') == 0
 
-  getOrDefault(t[], key)
+  getOrDefaultImpl(t[], key, default(t.B))
 
-proc getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A, default: B): B =
+template getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A, default: B): B =
   ## Retrieves the value at `t[key]` if `key` is in `t`.
   ## Otherwise, `default` is returned.
   ##
@@ -1951,7 +1950,7 @@ proc getOrDefault*[A, B](t: OrderedTableRef[A, B], key: A, default: B): B =
     doAssert a.getOrDefault('a', 99) == 5
     doAssert a.getOrDefault('z', 99) == 99
 
-  getOrDefault(t[], key, default)
+  getOrDefaultImpl(t[], key, default)
 
 proc mgetOrPut*[A, B](t: OrderedTableRef[A, B], key: A, val: B): var B =
   ## Retrieves value at `t[key]` or puts `val` if not present, either way
@@ -2251,8 +2250,9 @@ proc rawGet[A](t: CountTable[A], key: A): int =
   result = -1 - h # < 0 => MISSING; insert idx = -1 - result
 
 template ctget(t, key, default: untyped): untyped =
-  var index = rawGet(t, key)
-  result = if index >= 0: t.data[index].val else: default
+  let t2 = t.unsafeAddr
+  var index = rawGet(t2[], key)
+  if index >= 0: t2[].data[index].val else: default
 
 proc inc*[A](t: var CountTable[A], key: A, val = 1)
 
@@ -2376,7 +2376,7 @@ proc contains*[A](t: CountTable[A], key: A): bool =
   ## the `in` operator.
   return hasKey[A](t, key)
 
-proc getOrDefault*[A](t: CountTable[A], key: A; default: int = 0): int =
+template getOrDefault*[A](t: CountTable[A], key: A; default: int = 0): int =
   ## Retrieves the value at `t[key]` if`key` is in `t`. Otherwise, the
   ## integer value of `default` is returned.
   ##
@@ -2696,7 +2696,7 @@ proc contains*[A](t: CountTableRef[A], key: A): bool =
   ## the `in` operator.
   return hasKey[A](t, key)
 
-proc getOrDefault*[A](t: CountTableRef[A], key: A, default: int): int =
+template getOrDefault*[A](t: CountTableRef[A], key: A, default: int): int =
   ## Retrieves the value at `t[key]` if`key` is in `t`. Otherwise, the
   ## integer value of `default` is returned.
   ##
@@ -2704,7 +2704,7 @@ proc getOrDefault*[A](t: CountTableRef[A], key: A, default: int): int =
   ## * `[] proc<#[],CountTableRef[A],A>`_ for retrieving a value of a key
   ## * `hasKey proc<#hasKey,CountTableRef[A],A>`_ for checking if a key
   ##   is in the table
-  result = t[].getOrDefault(key, default)
+  getOrDefault(t[], key, default)
 
 proc len*[A](t: CountTableRef[A]): int =
   ## Returns the number of keys in `t`.
@@ -2878,3 +2878,23 @@ iterator mvalues*[A](t: CountTableRef[A]): var int =
     if t.data[h].val != 0:
       yield t.data[h].val
       assert(len(t) == L, "the length of the table changed while iterating over it")
+
+type SomeTable[A, B] = Table[A, B] | TableRef[A, B] | OrderedTable[A, B] | OrderedTableRef[A, B]
+  # in future work, refactor so that more procs can reuse this, and
+  # consider exporting `SomeTable`.
+
+proc getPtr*[A, B](t: SomeTable[A, B], key: A): ptr B =
+  ## Returns the address of the value stored at `key` if
+  ## it exists, or `nil`.
+  ##
+  ## This can be useful for performance reasons, but is unsafe to use
+  ## if table mutations occur before you use the address,
+  ## as with table iterators.
+  runnableExamples:
+    let t = {1: "foo", 2: "bar"}.toTable
+    assert t.getPtr(3) == nil
+    let a = t.getPtr(2)
+    assert a[] == "bar"
+    assert t.getPtr(2) == a
+      # same because we return by address, unlike `[]`
+  getPtrImpl(t, key)
