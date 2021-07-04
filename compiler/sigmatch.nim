@@ -92,6 +92,7 @@ type
     isSubtype,
     isSubrange,              # subrange of the wanted type; no type conversion
                              # but apart from that counts as ``isSubtype``
+    isVarConvertible,
     isBothMetaConvertible    # generic proc parameter was matched against
                              # generic type, e.g., map(mySeq, x=>x+1),
                              # maybe recoverable by rerun if the parameter is
@@ -1192,7 +1193,10 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
   of tyFloat128: result = handleFloatRange(f, a)
   of tyVar, tyLent:
     if aOrig.kind == f.kind: result = typeRel(c, f.base, aOrig.base, flags)
-    else: result = typeRel(c, f.base, aOrig, flags + {trNoCovariance})
+    else:
+      result = typeRel(c, f.base, aOrig, flags + {trNoCovariance})
+      if result > isVarConvertible:
+        result = isVarConvertible
     subtypeCheck()
   of tyArray:
     case a.kind
@@ -1999,7 +2003,7 @@ proc incMatches(m: var TCandidate; r: TTypeRelation; convMatch = 1) =
   of isFromIntLit: inc(m.intConvMatches, 256)
   of isInferredConvertible:
     inc(m.convMatches)
-  of isEqual: inc(m.exactMatches)
+  of isEqual, isVarConvertible: inc(m.exactMatches)
   of isNone: discard
 
 template matchesVoidProc(t: PType): bool =
@@ -2149,7 +2153,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     # ``isIntConv`` and ``isIntLit`` here:
     inc(m.intConvMatches, 256)
     result = implicitConv(nkHiddenStdConv, f, arg, m, c)
-  of isEqual:
+  of isEqual, isVarConvertible:
     inc(m.exactMatches)
     result = arg
     if skipTypes(f, abstractVar-{tyTypeDesc}).kind == tyTuple or
