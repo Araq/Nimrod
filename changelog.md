@@ -93,6 +93,8 @@
 
 - Renamed `-d:nimCompilerStackraceHints` to `-d:nimCompilerStacktraceHints`.
 
+- Added `os.isPortableFilename` and deprecated `os.isValidFilename`.
+
 
 ## Standard library additions and changes
 
