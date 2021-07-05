@@ -73,7 +73,7 @@ import typetraits
 
 when (NimMajor, NimMinor) >= (1, 1):
   type
-    SomePointer = ref | ptr | pointer | proc
+    SomePointer = ref | ptr | pointer | proc # xxx what about cstring? proc vs closure?
 else:
   type
     SomePointer = ref | ptr | pointer
@@ -81,16 +81,19 @@ else:
 type
   Option*[T] = object
     ## An optional type that may or may not contain a value of type `T`.
-    ## When `T` is a a pointer type (`ptr`, `pointer`, `ref` or `proc`),
-    ## `none(T)` is represented as `nil`.
-    when T is SomePointer:
-      val: T
-    else:
-      val: T
-      has: bool
+    val: T
+    has: bool
 
   UnpackDefect* = object of Defect
   UnpackError* {.deprecated: "See corresponding Defect".} = UnpackDefect
+
+template maybeOption*[T](_: typedesc[T]): untyped =
+  ## Return `T` if T is `ref | ptr | pointer | proc`, else `Option[T]`
+  runnableExamples:
+    assert maybeOption(ref int) is ref int
+    assert maybeOption(int) is Option[int]
+  when T is SomePointer: T
+  else: Option[T]
 
 proc option*[T](val: sink T): Option[T] {.inline.} =
   ## Can be used to convert a pointer type (`ptr`, `pointer`, `ref` or `proc`) to an option type.
@@ -102,14 +105,15 @@ proc option*[T](val: sink T): Option[T] {.inline.} =
   runnableExamples:
     type
       Foo = ref object
-        a: int
-        b: string
-
     assert option[Foo](nil).isNone
+    assert option(Foo(nil)).isNone
+    assert some(Foo(nil)).isSome
     assert option(42).isSome
-
-  result.val = val
-  when T isnot SomePointer:
+  when T is SomePointer:
+    result.val = val
+    result.has = val != nil
+  else:
+    result.val = val
     result.has = true
 
 proc some*[T](val: sink T): Option[T] {.inline.} =
@@ -121,16 +125,15 @@ proc some*[T](val: sink T): Option[T] {.inline.} =
   ## * `isSome proc <#isSome,Option[T]>`_
   runnableExamples:
     let a = some("abc")
-
     assert a.isSome
     assert a.get == "abc"
 
-  when T is SomePointer:
-    assert not val.isNil
-    result.val = val
-  else:
-    result.has = true
-    result.val = val
+    let b: ref int = nil
+    assert some(b).isSome
+    assert option(b).isNone
+
+  result.has = true
+  result.val = val
 
 proc none*(T: typedesc): Option[T] {.inline.} =
   ## Returns an `Option` for this type that has no value.
@@ -158,11 +161,7 @@ proc isSome*[T](self: Option[T]): bool {.inline.} =
   runnableExamples:
     assert some(42).isSome
     assert not none(string).isSome
-
-  when T is SomePointer:
-    not self.val.isNil
-  else:
-    self.has
+  self.has
 
 proc isNone*[T](self: Option[T]): bool {.inline.} =
   ## Checks if an `Option` is empty.
@@ -173,11 +172,7 @@ proc isNone*[T](self: Option[T]): bool {.inline.} =
   runnableExamples:
     assert not some(42).isNone
     assert none(string).isNone
-
-  when T is SomePointer:
-    self.val.isNil
-  else:
-    not self.has
+  not self.has
 
 proc get*[T](self: Option[T]): lent T {.inline.} =
   ## Returns the content of an `Option`. If it has no value,
@@ -338,10 +333,7 @@ proc `==`*[T](a, b: Option[T]): bool {.inline.} =
     assert b == d
     assert not (a == b)
 
-  when T is SomePointer:
-    a.val == b.val
-  else:
-    (a.isSome and b.isSome and a.val == b.val) or (a.isNone and b.isNone)
+  (a.isSome and b.isSome and a.val == b.val) or (a.isNone and b.isNone)
 
 proc `$`*[T](self: Option[T]): string =
   ## Get the string representation of the `Option`.
