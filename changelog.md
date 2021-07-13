@@ -346,6 +346,8 @@
 
 - Added `dom.setInterval`, `dom.clearInterval` overloads.
 
+- Added `ControlChars`, `GraphicChars`, `PrintableChars`, and `Punctuation` sets to `strutils`.
+
 ## Language changes
 
 - `nimscript` now handles `except Exception as e`.

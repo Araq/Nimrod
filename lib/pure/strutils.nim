@@ -84,7 +84,7 @@ from std/private/strimpl import cmpIgnoreStyleImpl, cmpIgnoreCaseImpl, startsWit
 
 
 const
-  Whitespace* = {' ', '\t', '\v', '\r', '\l', '\f'}
+  Whitespace* = {' ', '\t', '\v', '\r', '\n', '\f'}
     ## All the characters that count as whitespace (space, tab, vertical tab,
     ## carriage return, new line, form feed).
 
@@ -94,21 +94,38 @@ const
   Digits* = {'0'..'9'}
     ## The set of digits.
 
-  HexDigits* = {'0'..'9', 'A'..'F', 'a'..'f'}
+  HexDigits* = Digits + {'A'..'F', 'a'..'f'}
     ## The set of hexadecimal digits.
 
-  IdentChars* = {'a'..'z', 'A'..'Z', '0'..'9', '_'}
+  IdentChars* = Letters + Digits + {'_'}
     ## The set of characters an identifier can consist of.
 
-  IdentStartChars* = {'a'..'z', 'A'..'Z', '_'}
+  IdentStartChars* = Letters + {'_'}
     ## The set of characters an identifier can start with.
 
-  Newlines* = {'\13', '\10'}
-    ## The set of characters a newline terminator can start with (carriage
-    ## return, line feed).
+  Newlines* = {'\r', '\n'}
+    ## The set of characters a newline terminator can consist of.
+
+  ControlChars* = {'\0'..'\31', '\127'}
+    ## The set of all ASCII control characters, i.e. that do not occupy
+    ## a printing position on a display.
+    ## (see also https://www.cplusplus.com/reference/cctype/iscntrl/)
+
+  GraphicChars* = {'!'..'~'}
+    ## The set of all ASCII graphic characters, i.e. that occupy a printing
+    ## position on a display and have a graphical representation.
+    ## (see also https://www.cplusplus.com/reference/cctype/isgraph/)
+  
+  PrintableChars* = GraphicChars + {' '}
+    ## The set of all ASCII printable characters, i.e. that occupy a printing
+    ## position on a display. (see also https://www.cplusplus.com/reference/cctype/isprint/)
+
+  Punctuation* = {'!', '\"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~'}
+    ## The set of all ASCII punctuation characters.
+    ## Is the same as `GraphicChars - Letters - Digits`
 
   AllChars* = {'\x00'..'\xFF'}
-    ## A set with all the possible characters.
+    ## The set of all characters.
     ##
     ## Not very useful by its own, you can use it to create *inverted* sets to
     ## make the `find func<#find,string,set[char],Natural,int>`_
@@ -184,7 +201,6 @@ func isUpperAscii*(c: char): bool {.rtl, extern: "nsuIsUpperAsciiChar".} =
     doAssert isUpperAscii('E') == true
     doAssert isUpperAscii('7') == false
   return c in {'A'..'Z'}
-
 
 func toLowerAscii*(c: char): char {.rtl, extern: "nsuToLowerAsciiChar".} =
   ## Returns the lower case version of character `c`.
