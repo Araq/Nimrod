@@ -118,7 +118,6 @@ when defineSsl:
     SslContext* = ref object
       context*: SslCtx
       referencedData: HashSet[int]
-      extraInternal: SslContextExtraInternal
 
     SslAcceptResult* = enum
       AcceptNoClient = 0, AcceptNoHandshake, AcceptSuccess
@@ -126,13 +125,9 @@ when defineSsl:
     SslHandshakeType* = enum
       handshakeAsClient, handshakeAsServer
 
-    SslClientGetPskFunc* = proc(hint: string): tuple[identity: string, psk: string]
+    SslClientGetPskFunc* = proc(hint: string): tuple[identity: string, psk: string]{.nimcall.}
 
-    SslServerGetPskFunc* = proc(identity: string): string
-
-    SslContextExtraInternal = ref object of RootRef
-      serverGetPskFunc: SslServerGetPskFunc
-      clientGetPskFunc: SslClientGetPskFunc
+    SslServerGetPskFunc* = proc(identity: string): string{.nimcall.}
 
 else:
   type
@@ -614,6 +609,9 @@ when defineSsl:
     when not defined(openssl10) and not defined(libressl):
       let sslVersion = getOpenSSLVersion()
       if sslVersion >= 0x010101000 and not sslVersion == 0x020000000:
+        # XXX always false!
+        # XXX however, setting non-1.3 ciphers with ciphersuites will
+        # XXX cause an error, cipherList needs to be split into 1.3 and non-1.3
         # In OpenSSL >= 1.1.1, TLSv1.3 cipher suites can only be configured via
         # this API.
         if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
@@ -661,11 +659,7 @@ when defineSsl:
           if not found:
             raise newException(IOError, "No SSL/TLS CA certificates found.")
 
-    result = SslContext(context: newCTX, referencedData: initHashSet[int](),
-      extraInternal: new(SslContextExtraInternal))
-
-  proc getExtraInternal(ctx: SslContext): SslContextExtraInternal =
-    return ctx.extraInternal
+    result = SslContext(context: newCTX, referencedData: initHashSet[int]())
 
   proc destroyContext*(ctx: SslContext) =
     ## Free memory referenced by SslContext.
@@ -681,56 +675,51 @@ when defineSsl:
     ## Sets the identity hint passed to server.
     ##
     ## Only used in PSK ciphersuites.
-    if ctx.context.SSL_CTX_use_psk_identity_hint(hint) <= 0:
+    if ctx.context.SSL_CTX_use_psk_identity_hint(hint.cstring) <= 0:
       raiseSSLError()
 
-  proc clientGetPskFunc*(ctx: SslContext): SslClientGetPskFunc =
-    return ctx.getExtraInternal().clientGetPskFunc
+  template genpskServerCallback(pskfunc: SslServerGetPskFunc): auto =
+    proc pskServerCallback(ssl: SslCtx; identity: cstring; psk: ptr cuchar;
+        max_psk_len: cint): cuint {.cdecl.} =
+      let pskString = pskfunc($identity)
+      if pskString.len.cint > max_psk_len:
+        return 0
+      copyMem(psk, pskString.cstring, pskString.len)
+      return pskString.len.cuint
 
-  proc pskClientCallback(ssl: SslPtr; hint: cstring; identity: cstring;
-      max_identity_len: cuint; psk: ptr cuchar;
-      max_psk_len: cuint): cuint {.cdecl.} =
-    let ctx = SslContext(context: ssl.SSL_get_SSL_CTX)
-    let hintString = if hint == nil: "" else: $hint
-    let (identityString, pskString) = (ctx.clientGetPskFunc)(hintString)
-    if pskString.len.cuint > max_psk_len:
-      return 0
-    if identityString.len.cuint >= max_identity_len:
-      return 0
-    copyMem(identity, identityString.cstring, identityString.len + 1) # with the last zero byte
-    copyMem(psk, pskString.cstring, pskString.len)
+    pskServerCallback
 
-    return pskString.len.cuint
+  proc `serverGetPskFunc=`*(ctx: SslContext, fun: static SslServerGetPskFunc) =
+    ## Sets function that returns PSK based on the client identity.
+    ## Call with nil to remove the callback
+    ##
+    ## Only used in PSK ciphersuites.
+    ctx.context.SSL_CTX_set_psk_server_callback(
+      when fun.isNil: nil else: genpskServerCallback(fun))
 
-  proc `clientGetPskFunc=`*(ctx: SslContext, fun: SslClientGetPskFunc) =
+  template genpskClientCallback(pskfunc: SslClientGetPskFunc): auto =
+    proc pskClientCallback(ssl: SslPtr; hint: cstring; identity: cstring;
+        max_identity_len: cuint; psk: ptr cuchar;
+        max_psk_len: cuint): cuint {.cdecl.} =
+      let (identityString, pskString) = pskfunc($hint)
+      if pskString.len.cuint > max_psk_len:
+        return 0
+      if identityString.len.cuint >= max_identity_len:
+        return 0
+      copyMem(identity, identityString.cstring, identityString.len + 1) # with the last zero byte
+      copyMem(psk, pskString.cstring, pskString.len)
+      return pskString.len.cuint
+
+    pskClientCallback
+
+  proc `clientGetPskFunc=`*(ctx: SslContext, fun: static SslClientGetPskFunc) =
     ## Sets function that returns the client identity and the PSK based on identity
     ## hint from the server.
+    ## Call with nil to remove the callback.
     ##
     ## Only used in PSK ciphersuites.
-    ctx.getExtraInternal().clientGetPskFunc = fun
     ctx.context.SSL_CTX_set_psk_client_callback(
-        if fun == nil: nil else: pskClientCallback)
-
-  proc serverGetPskFunc*(ctx: SslContext): SslServerGetPskFunc =
-    return ctx.getExtraInternal().serverGetPskFunc
-
-  proc pskServerCallback(ssl: SslCtx; identity: cstring; psk: ptr cuchar;
-      max_psk_len: cint): cuint {.cdecl.} =
-    let ctx = SslContext(context: ssl.SSL_get_SSL_CTX)
-    let pskString = (ctx.serverGetPskFunc)($identity)
-    if pskString.len.cint > max_psk_len:
-      return 0
-    copyMem(psk, pskString.cstring, pskString.len)
-
-    return pskString.len.cuint
-
-  proc `serverGetPskFunc=`*(ctx: SslContext, fun: SslServerGetPskFunc) =
-    ## Sets function that returns PSK based on the client identity.
-    ##
-    ## Only used in PSK ciphersuites.
-    ctx.getExtraInternal().serverGetPskFunc = fun
-    ctx.context.SSL_CTX_set_psk_server_callback(if fun == nil: nil
-                                                else: pskServerCallback)
+      when fun.isNil: nil else: genpskClientCallback(fun))
 
   proc getPskIdentity*(socket: Socket): string =
     ## Gets the PSK identity provided by the client.
@@ -757,7 +746,6 @@ when defineSsl:
     socket.sslNoShutdown = false
     if socket.sslHandle == nil:
       raiseSSLError()
-
     if SSL_set_fd(socket.sslHandle, socket.fd) != 1:
       raiseSSLError()
 
