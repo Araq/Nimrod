@@ -195,6 +195,10 @@
 
 - Added `os.getCacheDir()` to return platform specific cache directory.
 
+- Added `os.absolutePrefix` to return the root path component for absolute paths
+
+- Added `os.nativeToUnixPath` to convert a native path to a UNIX path.
+
 - Added a simpler to use `io.readChars` overload.
 
 - Added `**` to jsffi.

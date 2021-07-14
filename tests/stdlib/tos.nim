@@ -25,7 +25,7 @@ Raises
 """
 # test os path creation, iteration, and deletion
 
-import os, strutils, pathnorm
+import std/[os, strutils, pathnorm, unittest]
 from stdtest/specialpaths import buildDir
 
 block fileOperations:
@@ -710,3 +710,29 @@ block: # isAdmin
   if isAzure and defined(windows): doAssert isAdmin()
   # In Azure on POSIX tests run as a normal user
   if isAzure and defined(posix): doAssert not isAdmin()
+
+block: # absolutePrefix
+  check:
+    absolutePrefix("//foo") == "//"
+    absolutePrefix("foo") == ""
+  when defined(windows):
+    check:
+      nativeToUnixPath(r"C:\foo\bar") == "/foo/bar"
+      nativeToUnixPath(r"\foo\bar") == "/foo/bar"
+      # tricky case
+      nativeToUnixPath(r"C:foo\bar") == "foo/bar"
+
+block: # nativeToUnixPath
+  check:
+    nativeToUnixPath("") == ""
+    nativeToUnixPath("foo") == "foo"
+    nativeToUnixPath("foo/bar") == "foo/bar"
+    nativeToUnixPath("/") == "/"
+    nativeToUnixPath(".") == "."
+
+  when defined(windows):
+    check:
+      nativeToUnixPath(r"C:\foo\bar") == "/foo/bar"
+      nativeToUnixPath(r"\foo\bar") == "/foo/bar"
+      # tricky case
+      nativeToUnixPath(r"C:foo\bar") == "foo/bar"
