@@ -1165,6 +1165,24 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           else: 0
       else:
         stackTrace(c, tos, pc, "node is not a proc symbol")
+    of opcModuleSymbols:
+      decodeBC(rkNode)
+      let a = regs[rb].node
+      if a.kind != nkSym:
+        stackTrace(c, tos, pc, "node.symKind is not a skModule")
+      else:
+        let sym = a.sym
+        if sym.kind != skModule:
+          stackTrace(c, tos, pc, "node.symKind is not a skModule")
+        else:
+          let enablePrivate = regs[rc].intVal.bool
+          let node = newNode(nkBracket)
+          for ai in allSyms(c.graph, sym, importHidden = enablePrivate):
+            let ni = newSymNode(ai)
+            ni.flags.incl nfIsRef
+            node.sons.add ni
+          node.flags.incl nfIsRef
+          regs[ra].node = node
     of opcEcho:
       let rb = instr.regB
       template fn(s) = msgWriteln(c.config, s, {msgStdout, msgNoUnitSep})
