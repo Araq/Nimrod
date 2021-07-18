@@ -399,6 +399,8 @@
 - Added a new module `std/importutils`, and an API `privateAccess`, which allows access to private fields
   for an object type in the current scope.
 
+- Added `importutils.deferImport` to mitigate cyclic import limitations (requires `-d:nimExperimentalDeferImport`).
+
 - `typeof(voidStmt)` now works and returns `void`.
 
 - The `gc:orc` algorithm was refined so that custom container types can participate in the
