@@ -27,6 +27,7 @@ Raises
 
 import os, strutils, pathnorm
 from stdtest/specialpaths import buildDir
+import stdtest/testutils
 
 block fileOperations:
   let files = @["these.txt", "are.x", "testing.r", "files.q"]
@@ -427,12 +428,6 @@ block ospaths:
   doAssert unixToNativePath("") == ""
   doAssert unixToNativePath(".") == $CurDir
   doAssert unixToNativePath("..") == $ParDir
-  doAssert isAbsolute(unixToNativePath("/"))
-  doAssert isAbsolute(unixToNativePath("/", "a"))
-  doAssert isAbsolute(unixToNativePath("/a"))
-  doAssert isAbsolute(unixToNativePath("/a", "a"))
-  doAssert isAbsolute(unixToNativePath("/a/b"))
-  doAssert isAbsolute(unixToNativePath("/a/b", "a"))
   doAssert unixToNativePath("a/b") == joinPath("a", "b")
 
   when defined(macos):
@@ -661,9 +656,8 @@ block: # normalizePathEnd
   when defined(windows):
     doAssert r"C:\foo\\".normalizePathEnd == r"C:\foo"
     doAssert r"C:\foo".normalizePathEnd(trailingSep = true) == r"C:\foo\"
-    # this one is controversial: we could argue for returning `D:\` instead,
-    # but this is simplest.
-    doAssert r"D:\".normalizePathEnd == r"D:"
+    doAssert r"D:\".normalizePathEnd == r"D:\"
+    doAssert r"D:foo\".normalizePathEnd == r"D:foo"
     doAssert r"E:/".normalizePathEnd(trailingSep = true) == r"E:\"
     doAssert "/".normalizePathEnd == r"\"
 
@@ -710,3 +704,18 @@ block: # isAdmin
   if isAzure and defined(windows): doAssert isAdmin()
   # In Azure on POSIX tests run as a normal user
   if isAzure and defined(posix): doAssert not isAdmin()
+
+template main =
+  # xxx move all tests here so they get tested in VM (disabling as needed)
+  block: # isAbsolute
+    for a in ["/", "/foo", "//"]: doAssert isAbsolute(a)
+    for a in ["", "foo", ".", ".."]: doAssert not isAbsolute(a)
+    for a in ["/", "/a", "/a/b"]:
+      doAssert isAbsolute(unixToNativePath(a))
+      doAssert isAbsolute(unixToNativePath(a, "a"))
+    when defined(windows):
+      for a in [r"C:\", r"B:/", r"c:\a", r"X://ab/", r"\"]: doAssert isAbsolute(a)
+      for a in [r"C:", r"C:foo", r"foo\bar"]: doAssert not isAbsolute(a)
+
+static: main()
+main()
