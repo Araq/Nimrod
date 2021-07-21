@@ -2147,6 +2147,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldInGenericContext = c.inGenericContext
   let oldInUnrolledContext = c.inUnrolledContext
   let oldInGenericInst = c.inGenericInst
+  let oldgenericInstStackLen = c.genericInstStack.len
   let oldInStaticContext = c.inStaticContext
   let oldProcCon = c.p
   c.generics = @[]
@@ -2165,6 +2166,10 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inGenericContext = oldInGenericContext
   c.inUnrolledContext = oldInUnrolledContext
   c.inGenericInst = oldInGenericInst
+
+  assert c.genericInstStack.len >= oldgenericInstStackLen
+  c.genericInstStack.setLen oldgenericInstStackLen
+
   c.inStaticContext = oldInStaticContext
   c.p = oldProcCon
   msgs.setInfoContextLen(c.config, oldContextLen)
@@ -2721,7 +2726,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     defer:
       if isCompilerDebug():
         echo ("<", c.config$n.info, n, ?.result.typ)
-
   result = n
   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
   if nfSem in n.flags: return
@@ -3003,7 +3007,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     for i in 0..<n.len:
       n[i] = semExpr(c, n[i])
   of nkComesFrom: discard "ignore the comes from information for now"
-  of nkMixinStmt: discard
+  of nkMixinStmt:
+    for ni in n:
+      if ni.kind == nkOpenSymChoice and ni.len == 1 and ni[0].sym.kind == skMixin:
+        addDecl(c, ni[0].sym)
   of nkBindStmt:
     if c.p != nil:
       if n.len > 0 and n[0].kind == nkSym:
